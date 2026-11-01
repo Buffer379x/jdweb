@@ -1,0 +1,27 @@
+java.lang.RuntimeException: org.appwork.storage.JSonMapperException: org.appwork.storage.simplejson.mapper.ClassCastMappingException: Could not map "x" to class [Ljava.lang.Object;
+	at org.appwork.remoteapi.RemoteAPI.parseParameters(RemoteAPI.java:479)
+	at org.appwork.remoteapi.RemoteAPI.createRemoteAPIRequestObject(RemoteAPI.java:415)
+	at org.appwork.remoteapi.SessionRemoteAPI.onPostSessionRequest(SessionRemoteAPI.java:94)
+	at org.appwork.utils.net.httpserver.session.HttpSessionController.onPostRequest(HttpSessionController.java:152)
+	at org.appwork.utils.net.httpserver.HttpConnection.run(HttpConnection.java:526)
+	at org.jdownloader.api.DeprecatedAPIServer$5.run(DeprecatedAPIServer.java:481)
+	at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1149)
+	at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:624)
+	at java.lang.Thread.run(Thread.java:750)
+Caused by: org.appwork.storage.JSonMapperException: org.appwork.storage.simplejson.mapper.ClassCastMappingException: Could not map "x" to class [Ljava.lang.Object;
+	at org.appwork.storage.SimpleMapper.stringToObject(SimpleMapper.java:232)
+	at org.appwork.storage.JSonStorage.restoreFromString(JSonStorage.java:333)
+	at org.appwork.utils.net.httpserver.requests.PostRequest.readPostParameters(PostRequest.java:255)
+	at org.appwork.utils.net.httpserver.requests.PostRequest.getPostParameter(PostRequest.java:239)
+	at org.appwork.remoteapi.RemoteAPI.parseParameters(RemoteAPI.java:456)
+	... 8 more
+Caused by: org.appwork.storage.simplejson.mapper.ClassCastMappingException: Could not map "x" to class [Ljava.lang.Object;
+	at org.appwork.storage.simplejson.mapper.JSonMapper.jsonToObject(JSonMapper.java:399)
+	at org.appwork.storage.SimpleMapper$1.jsonToObjectByPassDeserializers(SimpleMapper.java:66)
+	at org.appwork.storage.SimpleMapper$1.jsonToObject(SimpleMapper.java:123)
+	at org.appwork.storage.simplejson.mapper.JSonMapper.jsonToObject(JSonMapper.java:646)
+	at org.appwork.storage.SimpleMapper$1.jsonToObjectByPassDeserializers(SimpleMapper.java:66)
+	at org.appwork.storage.SimpleMapper$1.jsonToObject(SimpleMapper.java:123)
+	at org.appwork.storage.simplejson.mapper.JSonMapper.jsonToObject(JSonMapper.java:747)
+	at org.appwork.storage.SimpleMapper.stringToObject(SimpleMapper.java:228)
+	... 12 more

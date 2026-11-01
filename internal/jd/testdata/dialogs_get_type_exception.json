@@ -1,0 +1,1 @@
+{"data":{"in":{"dontshowagainselected":"boolean","closereason":"class org.appwork.uio.CloseReason"},"out":{"okbuttontext":"class java.lang.String","stacktrace":"class java.lang.String","flags":"int","cancelbuttontext":"class java.lang.String","message":"class java.lang.String","title":"class java.lang.String","timeout":"int"}}}

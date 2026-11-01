@@ -1,0 +1,5 @@
+{
+ "src"  : "DEVICE",
+ "data" : "Bad Origin",
+ "type" : "AUTH_FAILED"
+}
