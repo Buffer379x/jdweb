@@ -275,7 +275,9 @@ func (c *Client) DownloadsReset(ctx context.Context, linkIDs, pkgIDs []int64) er
 	return c.Call(ctx, pathDLReset, nil, ids(linkIDs), ids(pkgIDs))
 }
 
-// DownloadsUnskip clears the skipped state. An empty reason matches every reason.
+// DownloadsUnskip clears the skipped state. An empty reason matches every
+// reason. Mind the parameter order: package ids first, then link ids, the
+// reverse of the other calls. It is the order of JDownloader's unskip.
 func (c *Client) DownloadsUnskip(ctx context.Context, pkgIDs, linkIDs []int64, reason SkipReason) error {
 	var r any
 	if reason != "" {

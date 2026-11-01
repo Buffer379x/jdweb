@@ -53,18 +53,22 @@ type StorageInfo struct {
 
 // ToolbarStatus is the compact status JDownloader shows in its toolbar.
 type ToolbarStatus struct {
-	State            ControllerState `json:"state"`
-	Running          bool            `json:"running"`
-	Pause            bool            `json:"pause"`
-	Speed            int64           `json:"speed"`
-	Limit            bool            `json:"limit"`
-	LimitSpeed       int64           `json:"limitspeed"` // bytes per second in revision 50639, the same number as DownloadSpeedLimit
-	Premium          bool            `json:"premium"`
-	Reconnect        bool            `json:"reconnect"`
-	Clipboard        bool            `json:"clipboard"`
-	StopAfter        bool            `json:"stopafter"`
-	DownloadCurrent  int64           `json:"download_current"`
-	DownloadComplete int64           `json:"download_complete"`
+	State   ControllerState `json:"state"`
+	Running bool            `json:"running"`
+	Pause   bool            `json:"pause"`
+	Speed   int64           `json:"speed"`
+	Limit   bool            `json:"limit"`
+	// LimitSpeed is in bytes per second in revision 50639 (not KiB/s), the same
+	// number as the config DownloadSpeedLimit while the limit is on. It is 0
+	// while the limit is off. During a pause it shows the pause speed, so it
+	// is not the configured limit: read that with SpeedLimit.
+	LimitSpeed       int64 `json:"limitspeed"`
+	Premium          bool  `json:"premium"`
+	Reconnect        bool  `json:"reconnect"`
+	Clipboard        bool  `json:"clipboard"`
+	StopAfter        bool  `json:"stopafter"`
+	DownloadCurrent  int64 `json:"download_current"`
+	DownloadComplete int64 `json:"download_complete"`
 }
 
 // Ping returns true when JDownloader answers.

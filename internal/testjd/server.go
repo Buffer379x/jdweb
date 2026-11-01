@@ -261,6 +261,9 @@ func (s *Server) answer(ctx context.Context, r *http.Request, body []byte, call 
 	if aerr != nil {
 		return errorObject(aerr.status, aerr.typ, aerr.data)
 	}
+	if b, ok := res.(binaryResult); ok {
+		return http.StatusOK, b.contentType, b.data
+	}
 	return http.StatusOK, "application/json", mustMarshal(map[string]any{"data": res})
 }
 

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"image/png"
 	"net/http"
 	"strings"
 	"sync"
@@ -1030,6 +1031,25 @@ func TestStaticAnswers(t *testing.T) {
 		t.Errorf("variants = %v, %v", v, err)
 	}
 	_ = s
+}
+
+func TestIcons(t *testing.T) {
+	s, c := setup(t)
+	for name, f := range map[string]func(string) ([]byte, string, error){
+		"1fichier.com": func(n string) ([]byte, string, error) { return c.HosterIcon(ctx, n) },
+		"a.zip":        func(n string) ([]byte, string, error) { return c.FileIcon(ctx, n) },
+	} {
+		data, ct, err := f(name)
+		if err != nil || ct != "image/png" || !bytes.HasPrefix(data, []byte("\x89PNG")) || len(data) < 40 {
+			t.Errorf("%s: %d bytes, %q, %v", name, len(data), ct, err)
+		}
+		if _, err := png.Decode(bytes.NewReader(data)); err != nil {
+			t.Errorf("%s: not a valid PNG: %v", name, err)
+		}
+	}
+	if code, body := post(t, s.URL+"/contentV2/getFavIcon", `{"params":[]}`, nil); code != 400 || !strings.Contains(body, "BAD_PARAMETERS") {
+		t.Errorf("%d %s", code, body)
+	}
 }
 
 func TestConcurrentUse(t *testing.T) {

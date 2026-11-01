@@ -88,8 +88,14 @@ const (
 	AvailabilityTempUnknown Availability = "TEMP_UNKNOWN"
 )
 
-// ControllerState is the state of the download controller. IDLE, RUNNING,
-// PAUSE, STOPPING and STOPPED_STATE are observed.
+// ControllerState is the raw state of the download controller as JDownloader
+// reports it (downloadcontroller/getCurrentState and toolbar/getStatus).
+//
+// docs/api.md knows only IDLE, RUNNING, PAUSE and STOPPING. JDownloader also
+// answers STOPPED_STATE after a stop (observed in revision 50639; a fresh
+// start says IDLE, a stop in progress STOPPING). The API layer has to map the
+// raw state; ControllerStates lists every value to map. This package does no
+// mapping.
 type ControllerState string
 
 const (
@@ -99,6 +105,13 @@ const (
 	ControllerStopping ControllerState = "STOPPING"
 	ControllerStopped  ControllerState = "STOPPED_STATE"
 )
+
+// ControllerStates returns every raw controller state the client knows, in the
+// order IDLE, RUNNING, PAUSE, STOPPING, STOPPED_STATE. A state outside this
+// list is new in JDownloader and has to be treated as unknown.
+func ControllerStates() []ControllerState {
+	return []ControllerState{ControllerIdle, ControllerRunning, ControllerPause, ControllerStopping, ControllerStopped}
+}
 
 // UrlDisplayType selects which url of a link getDownloadUrls returns.
 type UrlDisplayType string

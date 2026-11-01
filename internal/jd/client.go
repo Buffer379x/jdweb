@@ -19,6 +19,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 // Default time limits: normal calls, the events long-poll, large addLinks.
@@ -29,8 +30,9 @@ const (
 )
 
 // maxBody caps how much of a response is read. A list of 10,000 links with all
-// fields is about 3 MB, so this leaves a wide margin and still protects memory.
-const maxBody = 128 << 20
+// fields is about 3 MB, so this leaves a wide margin and still protects the
+// memory target of the whole app.
+const maxBody = 32 << 20
 
 // rawLimit caps the response text kept in Error.Raw.
 const rawLimit = 4096
@@ -121,6 +123,15 @@ func (c *Client) timeoutFor(path string) time.Duration {
 //
 // Errors are *Error, except when ctx ends first, then ctx's error is returned.
 func (c *Client) Call(ctx context.Context, path string, out any, params ...any) error {
+	status, _, data, err := c.do(ctx, path, params)
+	if err != nil {
+		return err
+	}
+	return redact(path, decodeResponse(path, status, data, out))
+}
+
+// do posts one call and returns status, Content-Type and the whole body.
+func (c *Client) do(ctx context.Context, path string, params []any) (int, string, []byte, error) {
 	if params == nil {
 		params = []any{}
 	}
@@ -128,14 +139,14 @@ func (c *Client) Call(ctx context.Context, path string, out any, params ...any) 
 		Params []any `json:"params"`
 	}{params})
 	if err != nil {
-		return &Error{Path: path, Type: TypeBadRequest, Raw: err.Error(), cause: err}
+		return 0, "", nil, &Error{Path: path, Type: TypeBadRequest, Raw: "cannot encode the params", cause: err}
 	}
 
 	cctx, cancel := context.WithTimeout(ctx, c.timeoutFor(path))
 	defer cancel()
 	req, err := http.NewRequestWithContext(cctx, http.MethodPost, c.base+path, bytes.NewReader(body))
 	if err != nil {
-		return &Error{Path: path, Type: TypeConnection, Raw: err.Error(), cause: err}
+		return 0, "", nil, &Error{Path: path, Type: TypeConnection, Raw: err.Error(), cause: err}
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
@@ -148,17 +159,47 @@ func (c *Client) Call(ctx context.Context, path string, out any, params ...any) 
 
 	resp, err := c.hc.Do(req)
 	if err != nil {
-		return c.transportError(ctx, path, err)
+		return 0, "", nil, c.transportError(ctx, path, err)
 	}
 	defer resp.Body.Close()
 	data, err := io.ReadAll(io.LimitReader(resp.Body, maxBody+1))
 	if err != nil {
-		return c.transportError(ctx, path, err)
+		return 0, "", nil, c.transportError(ctx, path, err)
 	}
 	if len(data) > maxBody {
-		return &Error{Status: resp.StatusCode, Path: path, Type: TypeInvalidResponse, Raw: "response larger than limit"}
+		return 0, "", nil, &Error{Status: resp.StatusCode, Path: path, Type: TypeInvalidResponse, Raw: "response larger than limit"}
 	}
-	return decodeResponse(path, resp.StatusCode, data, out)
+	return resp.StatusCode, resp.Header.Get("Content-Type"), data, nil
+}
+
+// secretPaths are the calls whose params hold a password. JDownloader echoes
+// a rejected param in the error ("data"), so these errors keep no body text.
+var secretPaths = map[string]bool{
+	pathAccAdd: true, pathAccSetLogin: true, pathBasicAdd: true, pathBasicUpdate: true, pathExtPassword: true,
+}
+
+// redact removes the response text from the error of a call with secret params.
+func redact(path string, err error) error {
+	if e := asError(err); e != nil && secretPaths[path] && e.Raw != "" {
+		e.Raw = "(response text left out, the call carried a password)"
+	}
+	return err
+}
+
+// callImage posts a call that answers with image bytes instead of JSON. An
+// error object of JDownloader is still returned as *Error.
+func (c *Client) callImage(ctx context.Context, path string, params ...any) (data []byte, contentType string, err error) {
+	status, ctype, body, err := c.do(ctx, path, params)
+	if err != nil {
+		return nil, "", err
+	}
+	if status == http.StatusOK && strings.HasPrefix(ctype, "image/") {
+		return body, ctype, nil
+	}
+	if err := decodeResponse(path, status, body, nil); err != nil {
+		return nil, "", err
+	}
+	return nil, "", &Error{Status: status, Path: path, Type: TypeInvalidResponse, Raw: "no image: " + ctype}
 }
 
 // transportError separates the caller giving up from JDownloader being unreachable.
@@ -222,11 +263,24 @@ func isVoid(data json.RawMessage) bool {
 	return s == "" || s == "null" || s == `""`
 }
 
+// clip makes response bytes safe text: valid UTF-8, cut at 4 KB on a rune boundary.
 func clip(b []byte) string {
-	if len(b) <= rawLimit {
-		return string(b)
+	s := strings.ToValidUTF8(string(b), "\uFFFD")
+	if len(s) <= rawLimit {
+		return s
 	}
-	return string(b[:rawLimit]) + "..."
+	return cutRunes(s, rawLimit) + "..."
+}
+
+// cutRunes cuts s to at most max bytes without splitting a rune.
+func cutRunes(s string, max int) string {
+	if len(s) <= max {
+		return s
+	}
+	for max > 0 && !utf8.RuneStart(s[max]) {
+		max--
+	}
+	return s[:max]
 }
 
 // Error types. JDownloader's own types (BAD_PARAMETERS, FILE_NOT_FOUND, ...)
@@ -255,9 +309,9 @@ type Error struct {
 }
 
 func (e *Error) Error() string {
-	raw := strings.Join(strings.Fields(e.Raw), " ")
+	raw := strings.Join(strings.Fields(strings.ToValidUTF8(e.Raw, "\uFFFD")), " ")
 	if len(raw) > 160 {
-		raw = raw[:160] + "..."
+		raw = cutRunes(raw, 160) + "..."
 	}
 	s := "jd: " + e.Path + ": " + e.Type
 	if e.Status != 0 {

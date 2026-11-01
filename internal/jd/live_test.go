@@ -29,6 +29,34 @@ func liveClient(t *testing.T) *jd.Client {
 	return jd.New(u)
 }
 
+// requireOnlyTestData refuses to go on when the instance holds packages that
+// are not from these tests, so the tests can never touch a real JDownloader.
+func requireOnlyTestData(t *testing.T, c *jd.Client, prefix string) {
+	t.Helper()
+	ctx := context.Background()
+	dl, err := c.DownloadPackages(ctx, jd.DownloadPackageQuery{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	lg, err := c.GrabberPackages(ctx, jd.GrabberPackageQuery{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range func() (n []string) {
+		for _, p := range dl {
+			n = append(n, p.Name)
+		}
+		for _, p := range lg {
+			n = append(n, p.Name)
+		}
+		return
+	}() {
+		if !strings.HasPrefix(name, prefix) {
+			t.Fatalf("REFUSING to run: the instance holds the package %q, which is not from these tests (prefix %q). Point JDWEB_TEST_JD_URL at the throwaway test stack only.", name, prefix)
+		}
+	}
+}
+
 func TestLiveReadOnly(t *testing.T) {
 	c := liveClient(t)
 	ctx := context.Background()
@@ -92,6 +120,27 @@ func TestLiveReadOnly(t *testing.T) {
 	if _, err := c.UpdateAvailable(ctx); err != nil {
 		t.Error(err)
 	}
+	if st, err := c.ControllerState(ctx); err != nil {
+		t.Error(err)
+	} else if !func() bool {
+		for _, k := range jd.ControllerStates() {
+			if k == st {
+				return true
+			}
+		}
+		return false
+	}() {
+		t.Errorf("controller state %q is not in jd.ControllerStates()", st)
+	}
+	for name, f := range map[string]func(string) ([]byte, string, error){
+		"1fichier.com": func(n string) ([]byte, string, error) { return c.HosterIcon(ctx, n) },
+		"archive.zip":  func(n string) ([]byte, string, error) { return c.FileIcon(ctx, n) },
+	} {
+		data, ct, err := f(name)
+		if err != nil || ct != "image/png" || !strings.HasPrefix(string(data), "\x89PNG") {
+			t.Errorf("icon %s: %d bytes, %q, %v", name, len(data), ct, err)
+		}
+	}
 	if _, err := c.DownloadFolderHistory(ctx); err != nil {
 		t.Error(err)
 	}
@@ -154,6 +203,7 @@ func TestLiveLifecycle(t *testing.T) {
 	c := liveClient(t)
 	ctx := context.Background()
 	const pkgName = "jdweb-live-test"
+	requireOnlyTestData(t, c, "jdweb-live-")
 
 	wasOn, wasLimit, err := c.SpeedLimit(ctx)
 	if err != nil {
@@ -412,6 +462,7 @@ func TestLiveSkipped(t *testing.T) {
 	ctx := context.Background()
 	no := false
 	const name = "jdweb-live-skip"
+	requireOnlyTestData(t, c, "jdweb-live-")
 	t.Cleanup(func() {
 		bg := context.Background()
 		_ = c.ControllerStop(bg)

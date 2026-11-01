@@ -23,9 +23,11 @@ type DialogTypeInfo struct {
 	Out map[string]string `json:"out"`
 }
 
-// DialogIDs returns the ids of the open dialogs. JDownloader shows them one by
-// one: answering one that is not the first fails with the id to answer first
-// in the error type ("Answer Dialog <id> first").
+// DialogIDs returns the ids of the open dialogs. JDownloader asks them one
+// after the other. Recorded with two open dialogs: answering the first id of
+// the list fails with HTTP 400 and the error type "Answer Dialog <id> first",
+// where <id> was the last id of the list. An unknown id fails with HTTP 400
+// and the type "Invalid ID: <id>". Both are in the Type field of *Error.
 func (c *Client) DialogIDs(ctx context.Context) (out []int64, err error) {
 	return out, c.Call(ctx, pathDialogList, &out)
 }

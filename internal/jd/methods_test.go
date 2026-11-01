@@ -176,6 +176,10 @@ func TestMethodsSendDocumentedParams(t *testing.T) {
 		{"InstallExtension", func(c *jd.Client) error { _, err := c.InstallExtension(ctx, "folderwatch"); return err }, "/extensions/install", `["folderwatch"]`},
 		{"SetExtensionEnabled", func(c *jd.Client) error { _, err := c.SetExtensionEnabled(ctx, "folderwatch", true); return err }, "/extensions/setEnabled", `["folderwatch",true]`},
 
+		// icons (answer with an image, see TestIcons)
+		{"HosterIcon", func(c *jd.Client) error { _, _, err := c.HosterIcon(ctx, "1fichier.com"); return err }, "/contentV2/getFavIcon", `["1fichier.com"]`},
+		{"FileIcon", func(c *jd.Client) error { _, _, err := c.FileIcon(ctx, "a.zip"); return err }, "/contentV2/getFileIcon", `["a.zip"]`},
+
 		// system
 		{"Ping", func(c *jd.Client) error { _, err := c.Ping(ctx); return err }, "/device/ping", `[]`},
 		{"CoreRevision", func(c *jd.Client) error { _, err := c.CoreRevision(ctx); return err }, "/jd/getCoreRevision", `[]`},
@@ -205,6 +209,10 @@ func TestMethodsSendDocumentedParams(t *testing.T) {
 				rep = reply{200, []byte(`{"data":true}`)}
 			}
 			s := newStub(t, map[string]reply{tc.path: rep})
+			if strings.HasPrefix(tc.path, "/contentV2/") {
+				s.routes[tc.path] = reply{200, binary(t, "icon_file.png")}
+				s.ctypes[tc.path] = "image/png"
+			}
 			err := tc.call(s.client())
 			if err != nil {
 				t.Fatal(err)

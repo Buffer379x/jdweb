@@ -115,3 +115,9 @@ func idSet(ids ...[]int64) map[int64]bool {
 	}
 	return m
 }
+
+// binaryResult is an answer that is not JSON, like the icons.
+type binaryResult struct {
+	contentType string
+	data        []byte
+}
