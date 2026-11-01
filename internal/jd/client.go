@@ -429,3 +429,7 @@ func NormalizeURL(s string) (string, error) {
 	u.RawPath = ""
 	return u.String(), nil
 }
+
+// CloseIdleConnections closes the kept-alive connections of the client, for a
+// client that is being replaced. Calls in flight are not touched.
+func (c *Client) CloseIdleConnections() { c.hc.CloseIdleConnections() }
