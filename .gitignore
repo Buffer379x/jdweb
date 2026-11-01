@@ -1,0 +1,10 @@
+/work/
+/.superpowers/
+node_modules/
+.DS_Store
+/dist/
+web/dist/*
+!web/dist/.gitkeep
+*.db
+*.db-wal
+*.db-shm
