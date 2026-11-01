@@ -1,0 +1,16 @@
+.git
+.gitignore
+.superpowers
+work
+test
+docs
+scripts
+node_modules
+web/node_modules
+dist
+*.db
+*.db-wal
+*.db-shm
+.DS_Store
+*.md
+!LICENSE
