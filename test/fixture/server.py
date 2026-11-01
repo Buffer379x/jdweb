@@ -15,7 +15,7 @@ import posixpath
 import time
 import zipfile
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import parse_qs, unquote, urlsplit
+from urllib.parse import parse_qs, quote, unquote, urlsplit
 
 PORT = 8000
 DEFAULT_SIZE = 1024 * 1024
@@ -50,14 +50,32 @@ def block_for(path):
 
 def file_name(path):
     name = posixpath.basename(path.rstrip("/"))
+    # Drop control characters (CR, LF, NUL, ...) so a name can never inject headers.
+    name = "".join(ch for ch in name if ch >= " " and ch != "\x7f")
     return name or "index.bin"
+
+
+def content_disposition(name):
+    """Build a header value that is safe for any file name.
+
+    ``filename`` is an ASCII fallback (quotes, backslashes, percent signs and
+    non-ASCII characters become ``_``); ``filename*`` carries the exact name as
+    percent-encoded UTF-8 (RFC 6266 / RFC 8187).
+    """
+    fallback = "".join(
+        ch if " " <= ch < "\x7f" and ch not in '"\\%' else "_" for ch in name
+    )
+    return "attachment; filename=\"%s\"; filename*=UTF-8''%s" % (fallback, quote(name, safe=""))
 
 
 class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
 
     def _target(self):
-        """Return (body_length, content_type, slow, chunk_iterator_factory)."""
+        """Return (path, body_length, content_type, slow, chunk_iterator_factory).
+
+        body_length is None when the request is invalid.
+        """
         parts = urlsplit(self.path)
         path = unquote(parts.path)
         if path == "/archiv.zip":
@@ -90,7 +108,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(length))
-        self.send_header("Content-Disposition", 'attachment; filename="%s"' % file_name(path))
+        self.send_header("Content-Disposition", content_disposition(file_name(path)))
         self.send_header("Accept-Ranges", "none")
         self.end_headers()
         return slow, chunks

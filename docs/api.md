@@ -61,7 +61,14 @@ Both lists are in JDownloader order and gzip-compressed.
 - `LgPackage`: `id,name,hosts[],childCount,bytesTotal,saveTo,onlineCount,offlineCount,unknownCount,tempUnknownCount,enabled,priority,comment,downloadPassword`.
 - `LgLink`: `id,packageId,name,host,url,bytesTotal,availability,enabled,priority,variants,variant,comment,downloadPassword`.
 
-`state` is derived from booleans (Concept 11.6) and is one of `disabled|extractError|finished|skipped|running|waiting`.
+`state` is derived from the other fields. It is the first match of this list:
+
+1. `disabled`: `enabled` is false.
+2. `extractError`: `extractionStatus` starts with `ERROR`.
+3. `finished`: `finished` is true.
+4. `skipped`: `skipped` is true.
+5. `running`: `running` is true.
+6. `waiting`: none of the above.
 
 `eta` is `null` when unknown or negative.
 
