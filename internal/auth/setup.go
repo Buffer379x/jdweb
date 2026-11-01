@@ -78,26 +78,30 @@ func (s *Service) SetupRequired(ctx context.Context) (bool, error) {
 // replaces the password of the existing account with the reset token. Both
 // tokens work once.
 func (s *Service) Setup(ctx context.Context, req SetupRequest) error {
+	// Setup and reset have their own per-address limiter. They never feel the
+	// global login pressure, so the owner can always recover the account.
 	key := ipKey(req.IP)
-	if err := s.limited(s.login, key); err != nil {
+	if _, err := s.reserve(s.setup, key); err != nil {
 		return err
 	}
+	att := &attempt{l: s.setup, ip: key}
+	defer att.done()
 	n, err := s.db.UserCount(ctx)
 	if err != nil {
 		return err
 	}
 	if n == 0 {
-		return s.firstSetup(ctx, req, key)
+		return s.firstSetup(ctx, req, att)
 	}
-	return s.resetSetup(ctx, req, key)
+	return s.resetSetup(ctx, req, att)
 }
 
-func (s *Service) firstSetup(ctx context.Context, req SetupRequest, key string) error {
+func (s *Service) firstSetup(ctx context.Context, req SetupRequest, att *attempt) error {
 	s.mu.Lock()
 	want := s.setupToken
 	s.mu.Unlock()
 	if want == "" || !tokensEqual(want, req.Token) {
-		s.login.fail(key)
+		att.fail()
 		s.log.Warn("setup refused: wrong token", "ip", req.IP)
 		return ErrInvalidToken
 	}
@@ -107,7 +111,7 @@ func (s *Service) firstSetup(ctx context.Context, req SetupRequest, key string) 
 	if err := ValidatePassword(req.Password); err != nil {
 		return err
 	}
-	hash, err := HashPassword(req.Password)
+	hash, err := HashPasswordContext(ctx, req.Password)
 	if err != nil {
 		return err
 	}
@@ -120,12 +124,12 @@ func (s *Service) firstSetup(ctx context.Context, req SetupRequest, key string) 
 	s.mu.Lock()
 	s.setupToken = ""
 	s.mu.Unlock()
-	s.login.success(key)
+	att.succeed()
 	s.log.Info("account created", "ip", req.IP)
 	return nil
 }
 
-func (s *Service) resetSetup(ctx context.Context, req SetupRequest, key string) error {
+func (s *Service) resetSetup(ctx context.Context, req SetupRequest, att *attempt) error {
 	rec, ok, err := s.activeReset(ctx)
 	if err != nil {
 		return err
@@ -134,14 +138,14 @@ func (s *Service) resetSetup(ctx context.Context, req SetupRequest, key string) 
 		return ErrSetupClosed
 	}
 	if !tokensEqual(rec.Hash, hashToken(req.Token)) {
-		s.login.fail(key)
+		att.fail()
 		s.log.Warn("password reset refused: wrong token", "ip", req.IP)
 		return ErrInvalidToken
 	}
 	if err := ValidatePassword(req.Password); err != nil {
 		return err
 	}
-	hash, err := HashPassword(req.Password)
+	hash, err := HashPasswordContext(ctx, req.Password)
 	if err != nil {
 		return err
 	}
@@ -151,7 +155,7 @@ func (s *Service) resetSetup(ctx context.Context, req SetupRequest, key string) 
 	case err != nil:
 		return err
 	}
-	s.login.success(key)
+	att.succeed()
 	s.log.Info("password reset completed, two-factor and all sessions cleared", "ip", req.IP)
 	return nil
 }

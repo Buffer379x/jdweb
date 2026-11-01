@@ -142,7 +142,7 @@ func TestRecoveryCodes(t *testing.T) {
 	}
 	seen := map[string]bool{}
 	for _, c := range codes {
-		if len(c) != 11 || c[5] != '-' {
+		if len(c) != 19 || c[4] != '-' || c[9] != '-' || c[14] != '-' {
 			t.Errorf("format %q", c)
 		}
 		if seen[c] {

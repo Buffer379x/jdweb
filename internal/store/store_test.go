@@ -560,3 +560,52 @@ func TestEnableAndDisableTOTPAreAtomic(t *testing.T) {
 		t.Fatalf("codes = %d", n)
 	}
 }
+
+func TestMigrationBackupIsPrivate(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "jdweb.db")
+	db, err := openWith(path, testMigrations(1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+	db, err = openWith(path, testMigrations(2))
+	if err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+	fi, err := os.Stat(path + ".pre-2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fi.Mode().Perm()&0o077 != 0 {
+		t.Fatalf("backup has mode %v, want no group/other access", fi.Mode().Perm())
+	}
+	// Contents must be a real copy, written by VACUUM INTO into the pre-created file.
+	b, err := openWith(path+".pre-2", testMigrations(1))
+	if err != nil {
+		t.Fatalf("backup is not a database: %v", err)
+	}
+	b.Close()
+}
+
+// Two processes (server and CLI) may open the database at the same time. The
+// loser sees a version that the winner already raised; it must not fail.
+func TestMigrationRereadsVersionInsideTransaction(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "jdweb.db")
+	db, err := openWith(path, testMigrations(3))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := db.migrate(context.Background(), testMigrations(3), 1); err != nil {
+		t.Fatalf("stale version made the migration fail: %v", err)
+	}
+	if v, _ := db.Version(context.Background()); v != 3 {
+		t.Fatalf("version = %d", v)
+	}
+	// A stale view must not hide a newer schema either.
+	err = db.migrate(context.Background(), testMigrations(2), 1)
+	if !errors.Is(err, ErrSchemaTooNew) {
+		t.Fatalf("err = %v, want ErrSchemaTooNew", err)
+	}
+}

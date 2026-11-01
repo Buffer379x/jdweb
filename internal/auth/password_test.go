@@ -1,12 +1,24 @@
 package auth
 
 import (
+	"context"
 	"errors"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 )
 
+// productionCost switches the Argon2 parameters back to the shipped values.
+func productionCost(t *testing.T) {
+	t.Helper()
+	old := argonCost
+	argonCost.time, argonCost.memory = argonTime, argonMemory
+	t.Cleanup(func() { argonCost = old })
+}
+
 func TestHashPasswordIsArgon2id(t *testing.T) {
+	productionCost(t)
 	h, err := HashPassword("correct horse battery")
 	if err != nil {
 		t.Fatal(err)
@@ -73,5 +85,65 @@ func TestValidateUsername(t *testing.T) {
 		if err := ValidateUsername(u); !errors.Is(err, ErrInvalidUsername) {
 			t.Errorf("ValidateUsername(%q) = %v, want ErrInvalidUsername", u, err)
 		}
+	}
+}
+
+func TestHashQueueIsBoundedAndHonoursContext(t *testing.T) {
+	h, _ := HashPassword("correct horse battery")
+	// Occupy every hashing slot so that new callers have to queue.
+	for i := 0; i < cap(hashSlots); i++ {
+		hashSlots <- struct{}{}
+	}
+	released := false
+	release := func() {
+		if !released {
+			released = true
+			for i := 0; i < cap(hashSlots); i++ {
+				<-hashSlots
+			}
+		}
+	}
+	defer release()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	var wg sync.WaitGroup
+	errs := make(chan error, maxHashQueue)
+	for i := 0; i < maxHashQueue; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, err := VerifyPasswordContext(ctx, h, "x")
+			errs <- err
+		}()
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for hashPending.Load() < maxHashQueue {
+		if time.Now().After(deadline) {
+			t.Fatal("queue did not fill")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	// The queue is full: further callers fail fast instead of piling up.
+	if _, err := VerifyPasswordContext(context.Background(), h, "x"); !errors.Is(err, ErrBusy) {
+		t.Fatalf("verify with full queue: %v, want ErrBusy", err)
+	}
+	if _, err := HashPasswordContext(context.Background(), "x"); !errors.Is(err, ErrBusy) {
+		t.Fatalf("hash with full queue: %v, want ErrBusy", err)
+	}
+	// Cancelling releases the waiting callers without running Argon2.
+	cancel()
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if !errors.Is(err, context.Canceled) {
+			t.Errorf("queued caller: %v, want context.Canceled", err)
+		}
+	}
+	if n := hashPending.Load(); n != 0 {
+		t.Fatalf("pending = %d after cancel", n)
+	}
+	release()
+	if ok, err := VerifyPasswordContext(context.Background(), h, "correct horse battery"); err != nil || !ok {
+		t.Fatalf("verify after the queue drained: %v %v", ok, err)
 	}
 }

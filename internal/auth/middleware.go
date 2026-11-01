@@ -98,6 +98,12 @@ func (s *Service) ClientIP(r *http.Request) string {
 		return host
 	}
 	if !s.isTrusted(peer) {
+		if len(s.trusted) == 0 && r.Header.Get("X-Forwarded-For") != "" {
+			s.forwardedWarn.Do(func() {
+				s.log.Warn("X-Forwarded-For header ignored because JDWEB_TRUSTED_PROXIES is empty; behind a reverse proxy set it to the proxy address, otherwise rate limiting and logs see only the proxy",
+					"peer", peer.String())
+			})
+		}
 		return peer.String()
 	}
 	var hops []string

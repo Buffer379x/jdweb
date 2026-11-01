@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"embed"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -67,9 +68,21 @@ func (db *DB) migrate(ctx context.Context, migs []migration, current int) error 
 		}
 	}
 	// All pending migrations run in one transaction: either the database is
-	// at the new version, or nothing changed.
+	// at the new version, or nothing changed. The version is read again inside
+	// the transaction (which holds the write lock), because another process,
+	// such as the reset-password CLI, may have migrated in the meantime.
 	err := db.Tx(ctx, func(tx *sql.Tx) error {
-		for _, m := range migs[current:] {
+		var v int
+		if err := tx.QueryRowContext(ctx, "PRAGMA user_version").Scan(&v); err != nil {
+			return err
+		}
+		if v > latest {
+			return fmt.Errorf("%w: %s has schema version %d, this JDWeb understands up to %d. Update JDWeb to the newer image, or restore an older backup of the data folder", ErrSchemaTooNew, db.Path, v, latest)
+		}
+		if v == latest {
+			return nil
+		}
+		for _, m := range migs[v:] {
 			if _, err := tx.ExecContext(ctx, m.SQL); err != nil {
 				return fmt.Errorf("migration %d: %w", m.Version, err)
 			}
@@ -77,6 +90,9 @@ func (db *DB) migrate(ctx context.Context, migs []migration, current int) error 
 		_, err := tx.ExecContext(ctx, fmt.Sprintf("PRAGMA user_version = %d", latest))
 		return err
 	})
+	if errors.Is(err, ErrSchemaTooNew) {
+		return err
+	}
 	if err != nil {
 		return fmt.Errorf("migrate %s from version %d to %d (database left unchanged): %w", db.Path, current, latest, err)
 	}
@@ -89,7 +105,15 @@ func (db *DB) backup(ctx context.Context, target int) error {
 	if err := os.Remove(dst); err != nil && !os.IsNotExist(err) {
 		return err
 	}
+	// VACUUM INTO accepts an empty existing file. Creating it first keeps the
+	// copy private: it holds the password hash and the session hashes.
+	f, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return err
+	}
+	f.Close()
 	if _, err := db.W.ExecContext(ctx, "VACUUM INTO ?", dst); err != nil {
+		os.Remove(dst)
 		return err
 	}
 	matches, err := filepath.Glob(db.Path + ".pre-*")

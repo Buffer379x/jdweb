@@ -30,18 +30,26 @@ func (s *Service) Account(ctx context.Context) (Account, error) {
 }
 
 // checkPassword verifies the signed-in user's password with rate limiting, so
-// a stolen session cannot be used to guess the password.
-func (s *Service) checkPassword(ctx context.Context, user store.User, pw string) error {
-	if err := s.limited(s.acct, "account"); err != nil {
-		return err
+// a stolen session cannot be used to guess the password. The attempt is
+// reserved before the slow check; the returned attempt must be settled with
+// succeed (already done here on success) and closed with done.
+func (s *Service) checkPassword(ctx context.Context, user store.User, pw string) (*attempt, error) {
+	if _, err := s.reserve(s.acct, "account"); err != nil {
+		return nil, err
 	}
-	if !s.verify(user.PasswordHash, pw) {
-		s.acct.fail("account")
+	att := &attempt{l: s.acct, ip: "account"}
+	ok, err := s.verify(ctx, user.PasswordHash, pw)
+	if err != nil {
+		att.done()
+		return nil, err
+	}
+	if !ok {
+		att.fail()
 		s.log.Warn("password check failed for a signed-in session")
-		return ErrWrongPassword
+		return nil, ErrWrongPassword
 	}
-	s.acct.success("account")
-	return nil
+	att.succeed()
+	return att, nil
 }
 
 // ChangePassword sets a new password and signs out every session except keepHash.
@@ -50,13 +58,13 @@ func (s *Service) ChangePassword(ctx context.Context, current, next, keepHash st
 	if err != nil {
 		return err
 	}
-	if err := s.checkPassword(ctx, user, current); err != nil {
+	if _, err := s.checkPassword(ctx, user, current); err != nil {
 		return err
 	}
 	if err := ValidatePassword(next); err != nil {
 		return err
 	}
-	hash, err := HashPassword(next)
+	hash, err := HashPasswordContext(ctx, next)
 	if err != nil {
 		return err
 	}
@@ -70,15 +78,20 @@ func (s *Service) ChangePassword(ctx context.Context, current, next, keepHash st
 	return nil
 }
 
-// EnrollTOTP creates a pending secret. It becomes active only after
-// ConfirmTOTP; a restart or the timeout discards it.
-func (s *Service) EnrollTOTP(ctx context.Context) (Enrollment, error) {
+// EnrollTOTP creates a pending secret after the password was confirmed, so a
+// stolen session cannot switch on a second factor that locks the owner out.
+// The secret becomes active only after ConfirmTOTP; a restart or the timeout
+// discards it.
+func (s *Service) EnrollTOTP(ctx context.Context, password string) (Enrollment, error) {
 	user, err := s.db.GetUser(ctx)
 	if err != nil {
 		return Enrollment{}, err
 	}
 	if user.TOTPSecret != "" {
 		return Enrollment{}, ErrTOTPEnabled
+	}
+	if _, err := s.checkPassword(ctx, user, password); err != nil {
+		return Enrollment{}, err
 	}
 	secret, err := newTOTPSecret()
 	if err != nil {
@@ -98,9 +111,11 @@ func (s *Service) EnrollTOTP(ctx context.Context) (Enrollment, error) {
 // ConfirmTOTP activates two-factor when code matches the pending secret and
 // returns the ten recovery codes. They are shown once; only hashes are stored.
 func (s *Service) ConfirmTOTP(ctx context.Context, code string) ([]string, error) {
-	if err := s.limited(s.acct, "account"); err != nil {
+	if _, err := s.reserve(s.acct, "account"); err != nil {
 		return nil, err
 	}
+	att := &attempt{l: s.acct, ip: "account"}
+	defer att.done()
 	s.mu.Lock()
 	pending := s.enroll
 	s.mu.Unlock()
@@ -111,14 +126,12 @@ func (s *Service) ConfirmTOTP(ctx context.Context, code string) ([]string, error
 	if err != nil {
 		return nil, err
 	}
-	s.mu.Lock()
-	step, ok := verifyTOTP(raw, trimmedDigits(code), s.now(), 0)
-	if ok {
-		s.lastStep = max(s.lastStep, step)
+	ok, err := s.acceptTOTP(ctx, raw, trimmedDigits(code))
+	if err != nil {
+		return nil, err
 	}
-	s.mu.Unlock()
 	if !ok {
-		s.acct.fail("account")
+		att.fail()
 		return nil, ErrInvalidCode
 	}
 	codes, err := newRecoveryCodes()
@@ -135,7 +148,7 @@ func (s *Service) ConfirmTOTP(ctx context.Context, code string) ([]string, error
 	s.mu.Lock()
 	s.enroll = nil
 	s.mu.Unlock()
-	s.acct.success("account")
+	att.succeed()
 	s.log.Info("two-factor enabled")
 	return codes, nil
 }
@@ -159,7 +172,7 @@ func (s *Service) DisableTOTP(ctx context.Context, password string) error {
 	if user.TOTPSecret == "" {
 		return ErrTOTPNotEnabled
 	}
-	if err := s.checkPassword(ctx, user, password); err != nil {
+	if _, err := s.checkPassword(ctx, user, password); err != nil {
 		return err
 	}
 	if err := s.db.DisableTOTP(ctx, s.now()); err != nil && !errors.Is(err, store.ErrNotFound) {

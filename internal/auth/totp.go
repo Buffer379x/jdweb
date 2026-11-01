@@ -129,17 +129,19 @@ func qrSVG(text string) (string, error) {
 
 var recoveryEncoding = base32.NewEncoding("abcdefghijklmnopqrstuvwxyz234567").WithPadding(base32.NoPadding)
 
-// newRecoveryCodes returns ten codes of the form xxxxx-xxxxx (50 random bits each).
+// newRecoveryCodes returns ten codes of the form xxxx-xxxx-xxxx-xxxx. Each
+// carries 80 random bits: they are stored as a plain SHA-256, so they need
+// enough entropy to make offline guessing hopeless.
 func newRecoveryCodes() ([]string, error) {
 	codes := make([]string, 0, recoveryCodeNum)
 	seen := map[string]bool{}
 	for len(codes) < recoveryCodeNum {
-		b := make([]byte, 7)
+		b := make([]byte, 10)
 		if _, err := rand.Read(b); err != nil {
 			return nil, err
 		}
-		raw := recoveryEncoding.EncodeToString(b)[:10]
-		c := raw[:5] + "-" + raw[5:]
+		raw := recoveryEncoding.EncodeToString(b) // 16 characters
+		c := raw[0:4] + "-" + raw[4:8] + "-" + raw[8:12] + "-" + raw[12:16]
 		if !seen[c] {
 			seen[c] = true
 			codes = append(codes, c)

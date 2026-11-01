@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Buffer379x/jdweb/internal/store"
@@ -38,25 +39,44 @@ func sessionID(tokenHash string) string { return tokenHash[:16] }
 
 func trimmed(s string) string { return strings.TrimSpace(s) }
 
-// dummyHash makes a login for an unknown user cost as much as a real one.
-var dummyHash = func() string {
-	h, err := HashPassword("jdweb dummy password for constant-cost logins")
-	if err != nil {
-		panic(err)
-	}
-	return h
-}()
+var (
+	dummyOnce sync.Once
+	dummyVal  string
+)
+
+// dummyHash makes a login for an unknown user cost as much as a real one. It
+// is computed on first use, with the current hashing cost, not at start-up.
+func dummyHash() string {
+	dummyOnce.Do(func() {
+		h, err := HashPassword("jdweb dummy password for constant-cost logins")
+		if err != nil {
+			h = "" // verification of "" fails fast; only the timing equalisation is lost
+		}
+		dummyVal = h
+	})
+	return dummyVal
+}
 
 // Login checks the credentials and opens a session. Every failure looks the
 // same to the caller; the user name is never revealed or logged.
+//
+// The attempt is reserved with the rate limiter before the slow password
+// check. Under global pressure the check is delayed by up to five seconds but
+// never refused, so the right password always works.
 func (s *Service) Login(ctx context.Context, req LoginRequest) (LoginResult, error) {
 	key := ipKey(req.IP)
-	if err := s.limited(s.login, key); err != nil {
+	throttle, err := s.reserve(s.login, key)
+	if err != nil {
 		s.log.Warn("login blocked by rate limit", "ip", req.IP)
 		return LoginResult{}, err
 	}
+	att := &attempt{l: s.login, ip: key}
+	defer att.done()
+	if err := s.sleep(ctx, throttle); err != nil {
+		return LoginResult{}, err
+	}
 	fail := func() (LoginResult, error) {
-		s.login.fail(key)
+		att.fail()
 		s.log.Warn("login failed", "ip", req.IP)
 		return LoginResult{}, ErrInvalidCredentials
 	}
@@ -67,10 +87,16 @@ func (s *Service) Login(ctx context.Context, req LoginRequest) (LoginResult, err
 	}
 	nameOK := err == nil && tokensEqual(user.Username, trimmed(req.Username))
 	if !nameOK {
-		s.verify(dummyHash, req.Password)
+		if _, err := s.verify(ctx, dummyHash(), req.Password); err != nil {
+			return LoginResult{}, err
+		}
 		return fail()
 	}
-	if !s.verify(user.PasswordHash, req.Password) {
+	ok, err := s.verify(ctx, user.PasswordHash, req.Password)
+	if err != nil {
+		return LoginResult{}, err
+	}
+	if !ok {
 		return fail()
 	}
 	if user.TOTPSecret != "" {
@@ -90,7 +116,7 @@ func (s *Service) Login(ctx context.Context, req LoginRequest) (LoginResult, err
 	if err != nil {
 		return LoginResult{}, err
 	}
-	s.login.success(key)
+	att.succeed()
 	s.log.Info("login", "ip", req.IP)
 	return res, nil
 }
@@ -99,13 +125,7 @@ func (s *Service) Login(ctx context.Context, req LoginRequest) (LoginResult, err
 func (s *Service) checkSecondFactor(ctx context.Context, secret, input string) (bool, error) {
 	code := strings.ReplaceAll(strings.TrimSpace(input), " ", "")
 	if raw, err := decodeSecret(secret); err == nil && len(code) == totpDigits && isDigits(code) {
-		s.mu.Lock()
-		defer s.mu.Unlock()
-		step, ok := verifyTOTP(raw, code, s.now(), s.lastStep)
-		if ok {
-			s.lastStep = step
-		}
-		return ok, nil
+		return s.acceptTOTP(ctx, raw, code)
 	}
 	return s.db.UseRecoveryCode(ctx, hashRecoveryCode(input), s.now())
 }

@@ -8,7 +8,9 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -42,13 +44,29 @@ func (l *lockedBuffer) String() string {
 	return l.b.String()
 }
 
+func TestMain(m *testing.M) {
+	// Cheap Argon2 parameters keep the suite fast. Tests that check the
+	// production parameters switch them back with productionCost.
+	argonCost.time, argonCost.memory = 1, 64
+	os.Exit(m.Run())
+}
+
+func countVerify(n *atomic.Int32) func(context.Context, string, string) (bool, error) {
+	return func(ctx context.Context, hash, pw string) (bool, error) {
+		n.Add(1)
+		return VerifyPasswordContext(ctx, hash, pw)
+	}
+}
+
 type env struct {
-	t   *testing.T
-	db  *store.DB
-	svc *Service
-	clk *fakeClock
-	log *lockedBuffer
-	ctx context.Context
+	sleepMu sync.Mutex
+	sleeps  []time.Duration
+	t       *testing.T
+	db      *store.DB
+	svc     *Service
+	clk     *fakeClock
+	log     *lockedBuffer
+	ctx     context.Context
 }
 
 func newEnv(t *testing.T, cfg Config) *env {
@@ -62,6 +80,12 @@ func newEnv(t *testing.T, cfg Config) *env {
 	cfg.Now = e.clk.Now
 	cfg.Logger = slog.New(slog.NewJSONHandler(e.log, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	e.svc = New(db, cfg)
+	e.svc.sleep = func(ctx context.Context, d time.Duration) error {
+		e.sleepMu.Lock()
+		e.sleeps = append(e.sleeps, d)
+		e.sleepMu.Unlock()
+		return nil
+	}
 	return e
 }
 
@@ -378,7 +402,7 @@ func TestLoginTruncatesLongUserAgent(t *testing.T) {
 func TestLoginFailuresAreIndistinguishable(t *testing.T) {
 	e := newEnv(t, Config{}).withAccount()
 	var checks atomic.Int32
-	e.svc.verify = func(hash, pw string) bool { checks.Add(1); return VerifyPassword(hash, pw) }
+	e.svc.verify = countVerify(&checks)
 
 	wrongPW := LoginRequest{Username: testUser, Password: "not the password", IP: "1.1.1.1"}
 	unknown := LoginRequest{Username: "nobody", Password: testPass, IP: "1.1.1.2"}
@@ -398,7 +422,7 @@ func TestLoginFailuresAreIndistinguishable(t *testing.T) {
 func TestLoginWithoutAccountRunsDummyHash(t *testing.T) {
 	e := newEnv(t, Config{})
 	var checks atomic.Int32
-	e.svc.verify = func(hash, pw string) bool { checks.Add(1); return VerifyPassword(hash, pw) }
+	e.svc.verify = countVerify(&checks)
 	_, err := e.login("1.1.1.1")
 	if !errors.Is(err, ErrInvalidCredentials) || checks.Load() != 1 {
 		t.Fatalf("err = %v, checks = %d", err, checks.Load())
@@ -415,7 +439,7 @@ func TestLoginRateLimit(t *testing.T) {
 	}
 	// Now even the right password is refused, without a hash computation.
 	var checks atomic.Int32
-	e.svc.verify = func(hash, pw string) bool { checks.Add(1); return VerifyPassword(hash, pw) }
+	e.svc.verify = countVerify(&checks)
 	_, err := e.login("9.9.9.9")
 	var rl *RateLimitError
 	if !errors.As(err, &rl) || rl.RetryAfter <= 0 {
@@ -441,21 +465,10 @@ func TestLoginRateLimit(t *testing.T) {
 	}
 }
 
-func TestLoginGlobalRateLimit(t *testing.T) {
-	e := newEnv(t, Config{}).withAccount()
-	for i := 0; i < globalThreshold; i++ {
-		ip := "7.7.7." + string(rune('a'+i/4))
-		e.svc.Login(e.ctx, LoginRequest{Username: testUser, Password: "wrong password!", IP: ip})
-	}
-	if _, err := e.login("1.2.3.4"); !errors.Is(err, ErrRateLimited) {
-		t.Fatalf("err = %v, want global rate limit", err)
-	}
-}
-
 // enrollTOTP walks through enrol and confirm and returns the secret and recovery codes.
 func enrollTOTP(t *testing.T, e *env) (secret string, recovery []string) {
 	t.Helper()
-	enr, err := e.svc.EnrollTOTP(e.ctx)
+	enr, err := e.svc.EnrollTOTP(e.ctx, testPass)
 	if err != nil {
 		t.Fatalf("EnrollTOTP: %v", err)
 	}
@@ -469,7 +482,7 @@ func enrollTOTP(t *testing.T, e *env) (secret string, recovery []string) {
 
 func TestTOTPEnrollmentAndLogin(t *testing.T) {
 	e := newEnv(t, Config{}).withAccount()
-	enr, err := e.svc.EnrollTOTP(e.ctx)
+	enr, err := e.svc.EnrollTOTP(e.ctx, testPass)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -504,7 +517,7 @@ func TestTOTPEnrollmentAndLogin(t *testing.T) {
 	if acc, _ := e.svc.Account(e.ctx); !acc.TOTPEnabled || acc.Username != testUser {
 		t.Fatalf("account = %+v", acc)
 	}
-	if _, err := e.svc.EnrollTOTP(e.ctx); !errors.Is(err, ErrTOTPEnabled) {
+	if _, err := e.svc.EnrollTOTP(e.ctx, testPass); !errors.Is(err, ErrTOTPEnabled) {
 		t.Fatalf("enrol twice: %v", err)
 	}
 
@@ -581,15 +594,15 @@ func TestEnrollmentErrorsAndExpiry(t *testing.T) {
 	if _, err := e.svc.ConfirmTOTP(e.ctx, "123456"); !errors.Is(err, ErrNoEnrollment) {
 		t.Fatalf("confirm without enrol: %v", err)
 	}
-	enr, _ := e.svc.EnrollTOTP(e.ctx)
+	enr, _ := e.svc.EnrollTOTP(e.ctx, testPass)
 	raw, _ := decodeSecret(enr.Secret)
 	e.clk.Advance(enrollmentTTL + time.Second)
 	if _, err := e.svc.ConfirmTOTP(e.ctx, totpCode(raw, e.clk.Now())); !errors.Is(err, ErrNoEnrollment) {
 		t.Fatalf("expired enrollment: %v", err)
 	}
 	// Enrolling again replaces the pending secret.
-	enr1, _ := e.svc.EnrollTOTP(e.ctx)
-	enr2, _ := e.svc.EnrollTOTP(e.ctx)
+	enr1, _ := e.svc.EnrollTOTP(e.ctx, testPass)
+	enr2, _ := e.svc.EnrollTOTP(e.ctx, testPass)
 	if enr1.Secret == enr2.Secret {
 		t.Fatal("secret reused")
 	}
@@ -749,5 +762,236 @@ func TestTOTPUsesSHA1SixDigitsLikeAuthenticatorApps(t *testing.T) {
 	raw := []byte("12345678901234567890")
 	if hotp(raw, 1, 6, sha1.New) != "287082" {
 		t.Fatal("HOTP counter 1 must give 287082 (RFC 4226)")
+	}
+}
+
+func TestLoginUnderGlobalPressureIsThrottledNeverRefused(t *testing.T) {
+	e := newEnv(t, Config{}).withAccount()
+	for i := 0; i < 25; i++ {
+		ip := fmt.Sprintf("198.51.100.%d", i+1)
+		e.svc.Login(e.ctx, LoginRequest{Username: testUser, Password: "wrong password!", IP: ip})
+	}
+	e.sleeps = nil
+	if _, err := e.login("203.0.113.77"); err != nil {
+		t.Fatalf("owner from a fresh address was refused: %v", err)
+	}
+	if len(e.sleeps) != 1 || e.sleeps[0] <= 0 || e.sleeps[0] > 5*time.Second {
+		t.Fatalf("throttle = %v, want one delay in (0, 5s]", e.sleeps)
+	}
+	// Even a far larger flood never pushes the delay above five seconds.
+	for i := 0; i < 200; i++ {
+		e.svc.Login(e.ctx, LoginRequest{Username: testUser, Password: "wrong password!", IP: fmt.Sprintf("192.0.2.%d", i)})
+	}
+	e.sleeps = nil
+	if _, err := e.login("203.0.113.78"); err != nil {
+		t.Fatalf("owner refused under heavy pressure: %v", err)
+	}
+	if e.sleeps[0] != 5*time.Second {
+		t.Fatalf("throttle = %v, want the 5 s cap", e.sleeps[0])
+	}
+}
+
+func TestSetupAndResetIgnoreGlobalPressure(t *testing.T) {
+	e := newEnv(t, Config{})
+	e.svc.InitSetup(e.ctx)
+	tok := e.setupToken()
+	// Failed logins from many addresses create global pressure ...
+	for i := 0; i < 30; i++ {
+		e.svc.Login(e.ctx, LoginRequest{Username: testUser, Password: "wrong password!", IP: fmt.Sprintf("198.51.100.%d", i+1)})
+	}
+	// ... and wrong setup tokens from many addresses do not add to it.
+	if e.svc.login.pressure() == 0 {
+		t.Fatal("test set-up: no pressure")
+	}
+	e.sleeps = nil
+	if err := e.svc.Setup(e.ctx, SetupRequest{Token: tok, Username: testUser, Password: testPass, IP: "203.0.113.5"}); err != nil {
+		t.Fatalf("setup under pressure: %v", err)
+	}
+	if len(e.sleeps) != 0 {
+		t.Fatalf("setup was delayed: %v", e.sleeps)
+	}
+	reset, err := e.svc.ResetToken(e.ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := e.svc.Setup(e.ctx, SetupRequest{Token: reset, Password: otherPW, IP: "203.0.113.6"}); err != nil {
+		t.Fatalf("reset under pressure: %v", err)
+	}
+	if len(e.sleeps) != 0 {
+		t.Fatalf("reset was delayed: %v", e.sleeps)
+	}
+}
+
+func TestWrongSetupTokensDoNotCreateLoginPressure(t *testing.T) {
+	e := newEnv(t, Config{})
+	e.svc.InitSetup(e.ctx)
+	for i := 0; i < 40; i++ {
+		e.svc.Setup(e.ctx, SetupRequest{Token: "guess", Username: testUser, Password: testPass, IP: fmt.Sprintf("198.51.100.%d", i+1)})
+	}
+	if p := e.svc.login.pressure(); p != 0 {
+		t.Fatalf("login pressure = %v after wrong setup tokens", p)
+	}
+}
+
+func TestSetupBlockDoesNotBlockLogin(t *testing.T) {
+	e := newEnv(t, Config{}).withAccount()
+	tok, _ := e.svc.ResetToken(e.ctx)
+	_ = tok
+	for i := 0; i < 5; i++ {
+		e.svc.Setup(e.ctx, SetupRequest{Token: "guess", Password: otherPW, IP: "203.0.113.9"})
+	}
+	if err := e.svc.Setup(e.ctx, SetupRequest{Token: tok, Password: otherPW, IP: "203.0.113.9"}); !errors.Is(err, ErrRateLimited) {
+		t.Fatalf("per-address setup block missing: %v", err)
+	}
+	if _, err := e.login("203.0.113.9"); err != nil {
+		t.Fatalf("login blocked by setup failures: %v", err)
+	}
+}
+
+func TestIPv6AddressesShareTheirSlash64(t *testing.T) {
+	e := newEnv(t, Config{}).withAccount()
+	for i := 1; i <= 5; i++ {
+		e.svc.Login(e.ctx, LoginRequest{Username: testUser, Password: "wrong password!", IP: fmt.Sprintf("2001:db8:1:2::%x", i)})
+	}
+	_, err := e.login("2001:db8:1:2:ffff::1")
+	if !errors.Is(err, ErrRateLimited) {
+		t.Fatalf("same /64, err = %v, want rate limit", err)
+	}
+	if _, err := e.login("2001:db8:1:3::1"); err != nil {
+		t.Fatalf("other /64: %v", err)
+	}
+}
+
+// Parallel requests must not overtake the failure cap: the attempt is reserved
+// before the slow password check.
+func TestConcurrentBurstEvaluatesAtMostFiveAttemptsPerAddress(t *testing.T) {
+	e := newEnv(t, Config{}).withAccount()
+	var checks atomic.Int32
+	e.svc.verify = func(ctx context.Context, hash, pw string) (bool, error) {
+		checks.Add(1)
+		time.Sleep(20 * time.Millisecond) // keep the requests overlapping
+		return false, nil
+	}
+	const n = 40
+	var wg sync.WaitGroup
+	var limited atomic.Int32
+	start := make(chan struct{})
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			_, err := e.svc.Login(e.ctx, LoginRequest{Username: testUser, Password: "guess guess guess", IP: "203.0.113.50"})
+			if errors.Is(err, ErrRateLimited) {
+				limited.Add(1)
+			}
+		}()
+	}
+	close(start)
+	wg.Wait()
+	if got := checks.Load(); got != 5 {
+		t.Fatalf("password evaluations = %d, want exactly 5", got)
+	}
+	if limited.Load() != n-5 {
+		t.Fatalf("rate limited = %d, want %d", limited.Load(), n-5)
+	}
+}
+
+func TestConcurrentBurstOnAccountPasswordChecks(t *testing.T) {
+	e := newEnv(t, Config{}).withAccount()
+	var checks atomic.Int32
+	e.svc.verify = func(ctx context.Context, hash, pw string) (bool, error) {
+		checks.Add(1)
+		time.Sleep(20 * time.Millisecond)
+		return false, nil
+	}
+	var wg sync.WaitGroup
+	for i := 0; i < 30; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			e.svc.ChangePassword(e.ctx, "guess guess guess", otherPW, "x")
+		}()
+	}
+	wg.Wait()
+	if got := checks.Load(); got != 5 {
+		t.Fatalf("password evaluations = %d, want exactly 5", got)
+	}
+}
+
+func TestBusyHashingIsNotCountedAsFailure(t *testing.T) {
+	e := newEnv(t, Config{}).withAccount()
+	e.svc.verify = func(ctx context.Context, hash, pw string) (bool, error) { return false, ErrBusy }
+	for i := 0; i < 12; i++ {
+		if _, err := e.login("203.0.113.60"); !errors.Is(err, ErrBusy) {
+			t.Fatalf("attempt %d: %v, want ErrBusy", i, err)
+		}
+	}
+	e.svc.verify = VerifyPasswordContext
+	if _, err := e.login("203.0.113.60"); err != nil {
+		t.Fatalf("busy answers consumed the failure budget: %v", err)
+	}
+}
+
+func TestEnrollRequiresPassword(t *testing.T) {
+	e := newEnv(t, Config{}).withAccount()
+	if _, err := e.svc.EnrollTOTP(e.ctx, "wrong password!"); !errors.Is(err, ErrWrongPassword) {
+		t.Fatalf("wrong password: %v", err)
+	}
+	if _, err := e.svc.EnrollTOTP(e.ctx, ""); !errors.Is(err, ErrWrongPassword) {
+		t.Fatalf("empty password: %v", err)
+	}
+	if _, err := e.svc.ConfirmTOTP(e.ctx, "123456"); !errors.Is(err, ErrNoEnrollment) {
+		t.Fatalf("a refused enrolment must leave no pending secret: %v", err)
+	}
+	for i := 0; i < 5; i++ {
+		e.svc.EnrollTOTP(e.ctx, "wrong password!")
+	}
+	if _, err := e.svc.EnrollTOTP(e.ctx, testPass); !errors.Is(err, ErrRateLimited) {
+		t.Fatalf("enrol password guessing is not limited: %v", err)
+	}
+}
+
+func TestLastTOTPStepSurvivesRestart(t *testing.T) {
+	e := newEnv(t, Config{}).withAccount()
+	secret, _ := enrollTOTP(t, e)
+	raw, _ := decodeSecret(secret)
+	e.clk.Advance(30 * time.Second)
+	code := totpCode(raw, e.clk.Now())
+	req := LoginRequest{Username: testUser, Password: testPass, IP: "1.1.1.1", TOTP: code}
+	if _, err := e.svc.Login(e.ctx, req); err != nil {
+		t.Fatal(err)
+	}
+	restarted := New(e.db, Config{Now: e.clk.Now, Logger: slog.New(slog.NewJSONHandler(&lockedBuffer{}, nil))})
+	if _, err := restarted.Login(e.ctx, req); !errors.Is(err, ErrInvalidCredentials) {
+		t.Fatalf("a code used before the restart was accepted again: %v", err)
+	}
+}
+
+func TestDummyHashIsLazyAndUsesCurrentCost(t *testing.T) {
+	h := dummyHash()
+	if !strings.HasPrefix(h, "$argon2id$v=19$m=64,t=1,p=1$") {
+		t.Fatalf("dummy hash %s does not follow the configured cost", h)
+	}
+	if dummyHash() != h {
+		t.Fatal("dummy hash is recomputed")
+	}
+}
+
+func TestWarnsOnceWhenForwardedHeadersCannotBeTrusted(t *testing.T) {
+	e := newEnv(t, Config{})
+	for i := 0; i < 3; i++ {
+		e.svc.ClientIP(req("203.0.113.9:1", map[string]string{"X-Forwarded-For": "1.2.3.4"}))
+	}
+	e.svc.ClientIP(req("203.0.113.9:1", nil))
+	n := strings.Count(e.log.String(), "JDWEB_TRUSTED_PROXIES")
+	if n != 1 {
+		t.Fatalf("warnings = %d, want 1: %s", n, e.log.String())
+	}
+
+	configured := newEnv(t, Config{TrustedProxies: mustProxies(t, "10.0.0.0/8")})
+	configured.svc.ClientIP(req("203.0.113.9:1", map[string]string{"X-Forwarded-For": "1.2.3.4"}))
+	if strings.Contains(configured.log.String(), "JDWEB_TRUSTED_PROXIES") {
+		t.Fatal("warned although proxies are configured")
 	}
 }

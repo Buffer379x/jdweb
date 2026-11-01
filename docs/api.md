@@ -31,7 +31,7 @@ All paths are below `/api/v1`, except `/healthz`.
 | `GET /sessions` | | |
 | `DELETE /sessions` | | signs out all other sessions |
 | `POST /password` | `{current,new}` | |
-| `POST /totp/enroll` | | `{secret,uri,qrSvg}` |
+| `POST /totp/enroll` | `{password}` | `{secret,uri,qrSvg}` |
 | `POST /totp/confirm` | `{code}` | `{recoveryCodes}` |
 | `POST /totp/disable` | `{password}` | |
 
