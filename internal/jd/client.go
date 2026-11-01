@@ -172,16 +172,39 @@ func (c *Client) do(ctx context.Context, path string, params []any) (int, string
 	return resp.StatusCode, resp.Header.Get("Content-Type"), data, nil
 }
 
-// secretPaths are the calls whose params hold a password. JDownloader echoes
-// a rejected param in the error ("data"), so these errors keep no body text.
+// secretPaths are the calls whose params can hold a password or another
+// secret. JDownloader echoes a rejected param in the error (in "data" or in
+// "type"), so these errors keep no response text and no unknown type.
 var secretPaths = map[string]bool{
-	pathAccAdd: true, pathAccSetLogin: true, pathBasicAdd: true, pathBasicUpdate: true, pathExtPassword: true,
+	pathAccAdd: true, pathAccSetLogin: true, pathBasicAdd: true, pathBasicUpdate: true,
+	pathExtPassword: true, pathExtSetSet: true, pathLGAddLinks: true,
+	dlNamespace + "/setDownloadPassword": true, lgNamespace + "/setDownloadPassword": true,
+	pathConfigSet: true, pathPluginSet: true,
 }
 
-// redact removes the response text from the error of a call with secret params.
+// knownTypes are the error types that carry no echoed input.
+var knownTypes = map[string]bool{
+	TypeBadParameters: true, TypeAuthFailed: true, TypeFileNotFound: true, TypeNotAvailable: true,
+	TypeInternal: true, TypeNotImplemented: true, TypeInvalidResponse: true, TypeConnection: true, TypeBadRequest: true,
+}
+
+// TypeRedacted replaces an error type of JDownloader that is not a known
+// constant when the call carried a secret: JDownloader puts messages such as
+// "Invalid ID: <input>" into the type.
+const TypeRedacted = "JD_REDACTED"
+
+// redact removes the response text and an unknown type from the error of a
+// call with secret params. Status and path stay.
 func redact(path string, err error) error {
-	if e := asError(err); e != nil && secretPaths[path] && e.Raw != "" {
-		e.Raw = "(response text left out, the call carried a password)"
+	e := asError(err)
+	if e == nil || !secretPaths[path] {
+		return err
+	}
+	if e.Raw != "" {
+		e.Raw = "(response text left out, the call carried a secret)"
+	}
+	if !knownTypes[e.Type] {
+		e.Type = TypeRedacted
 	}
 	return err
 }

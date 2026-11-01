@@ -146,6 +146,21 @@ func TestPasswordsStayOutOfErrors(t *testing.T) {
 			return c.UpdateBasicAuth(ctx, jd.BasicAuth{ID: 1, Type: jd.BasicAuthHTTP, Password: secret})
 		}},
 		"AddArchivePassword": {"/extraction/addArchivePassword", func(c *jd.Client) error { return c.AddArchivePassword(ctx, secret) }},
+		"Downloads.SetPassword": {"/downloadsV2/setDownloadPassword", func(c *jd.Client) error {
+			return c.Downloads().SetPassword(ctx, secret, []int64{1}, nil)
+		}},
+		"Linkgrabber.SetPassword": {"/linkgrabberv2/setDownloadPassword", func(c *jd.Client) error {
+			return c.Linkgrabber().SetPassword(ctx, secret, nil, []int64{1})
+		}},
+		"AddLinks": {"/linkgrabberv2/addLinks", func(c *jd.Client) error {
+			_, err := c.AddLinks(ctx, jd.AddLinksRequest{Links: []string{"http://h/x"}, ExtractPassword: secret, DownloadPassword: secret})
+			return err
+		}},
+		"SetArchiveSettings": {"/extraction/setArchiveSettings", func(c *jd.Client) error {
+			return c.SetArchiveSettings(ctx, jd.ArchiveSettings{ArchiveID: "a", FinalPassword: secret, Passwords: []string{secret}})
+		}},
+		"ConfigSet": {"/config/set", func(c *jd.Client) error { return c.ConfigSet(ctx, "i", "", "ProxyPassword", secret) }},
+		"PluginSet": {"/plugins/set", func(c *jd.Client) error { return c.PluginSet(ctx, "i", "p", "Password", secret) }},
 	}
 	for name, tc := range calls {
 		t.Run(name, func(t *testing.T) {
@@ -168,6 +183,23 @@ func TestPasswordsStayOutOfErrors(t *testing.T) {
 			}
 		})
 	}
+	t.Run("the error type is left out when it echoes the input", func(t *testing.T) {
+		typeEcho := []byte(`{"src":"DEVICE","data":null,"type":"Invalid value: ` + secret + `"}`)
+		for _, status := range []int{400, 404} {
+			s := newStub(t, map[string]reply{"/accountsV2/addAccount": {status, typeEcho}})
+			err := s.client().AddAccount(ctx, "h.com", "u", secret)
+			var e *jd.Error
+			if !errors.As(err, &e) {
+				t.Fatalf("err = %v", err)
+			}
+			if strings.Contains(err.Error(), secret) || strings.Contains(e.Type, secret) || strings.Contains(e.Raw, secret) {
+				t.Errorf("HTTP %d: the type echoed the password: %v / %+v", status, err, e)
+			}
+			if e.Type != jd.TypeRedacted || e.Status != status {
+				t.Errorf("Error = %+v", e)
+			}
+		}
+	})
 	t.Run("other calls keep the text for diagnosis", func(t *testing.T) {
 		s := newStub(t, map[string]reply{"/accountsV2/enableAccounts": {400, echo}})
 		err := s.client().EnableAccounts(ctx, []int64{1})
