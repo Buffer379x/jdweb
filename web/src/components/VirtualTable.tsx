@@ -90,16 +90,20 @@ export function VirtualTable(p: Props) {
   const start = Math.max(0, Math.floor(top / p.rowHeight) - overscan);
   const end = Math.min(p.rowCount, Math.ceil((top + height) / p.rowHeight) + overscan);
 
+  // The row the focus points at has to be in the page, or the reference leads nowhere.
+  const focusInPage = p.focusIndex >= start && p.focusIndex < end;
+
   return (
+    <div class={`vt-frame${p.rowCount === 0 ? " is-empty" : ""}`}>
     <div
       ref={box}
       class={`vt ${p.listClass}`}
-      role="grid"
+      role="treegrid"
       aria-label={p.label}
       aria-rowcount={p.rowCount + 1}
       aria-colcount={p.columns.length + 1}
       aria-multiselectable="true"
-      aria-activedescendant={p.focusId}
+      aria-activedescendant={focusInPage ? p.focusId : undefined}
       tabIndex={0}
       onScroll={onScroll}
       onKeyDown={p.onKeyDown}
@@ -133,7 +137,9 @@ export function VirtualTable(p: Props) {
         {p.renderRows(start, end)}
         <div class="vt-spacer" style={{ "--h": `${Math.max(0, p.rowCount - end) * p.rowHeight}px` } as Vars} aria-hidden="true" />
       </div>
-      {p.rowCount === 0 ? p.empty : null}
+    </div>
+    {/* Messages are no rows: they sit beside the grid, not in it. */}
+    {p.rowCount === 0 ? p.empty : null}
     </div>
   );
 }

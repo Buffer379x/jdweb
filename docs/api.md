@@ -84,7 +84,7 @@ Both lists are in JDownloader order. They are gzip-compressed when the request h
 ### Objects
 
 - `DlPackage`: `id,name,hosts[],childCount,bytesTotal,bytesLoaded,speed,eta,enabled,finished,running,saveTo,status,priority,comment,downloadPassword`.
-- `DlLink`: `id,packageId,name,host,url,bytesTotal,bytesLoaded,speed,eta,enabled,finished,running,skipped,skipReason,extractionStatus,status,priority,comment,downloadPassword,addedDate,finishedDate,state`.
+- `DlLink`: `id,packageId,name,host,url,bytesTotal,bytesLoaded,speed,eta,enabled,finished,running,skipped,skipReason,extractionStatus,status,priority,comment,downloadPassword,addedDate,finishedDate,finalState,state`.
 - `LgPackage`: `id,name,hosts[],childCount,bytesTotal,saveTo,onlineCount,offlineCount,unknownCount,tempUnknownCount,enabled,priority,comment,downloadPassword`.
 - `LgLink`: `id,packageId,name,host,url,bytesTotal,availability,enabled,priority,variants,variant,comment,downloadPassword`.
 
@@ -92,10 +92,13 @@ Both lists are in JDownloader order. They are gzip-compressed when the request h
 
 1. `disabled`: `enabled` is false.
 2. `extractError`: `extractionStatus` starts with `ERROR`.
-3. `finished`: `finished` is true.
-4. `skipped`: `skipped` is true.
-5. `running`: `running` is true.
-6. `waiting`: none of the above.
+3. `failed`: `finalState` is set and does not start with `FINISHED`.
+4. `finished`: `finished` is true.
+5. `skipped`: `skipped` is true.
+6. `running`: `running` is true.
+7. `waiting`: none of the above.
+
+`finalState` is how JDownloader ended the download, the id of `advancedStatus.FinalLinkState` (`FINISHED`, `OFFLINE` for "File not found" while downloading, other failures as JDownloader names them), empty while it has not ended. It is the only machine readable verdict: the text of `status` is never evaluated. Recorded on a real JDownloader: network errors and HTTP 429/503 are no final state, they leave the link waiting with a retry (`ConditionalSkipReason`, `status` shows the reason); a refused or vanished file ends as `OFFLINE`. Events do not carry `finalState`: it arrives with the next reload of the list (JDownloader sends `REFRESH_CONTENT` when a link ends), and a link that starts running again loses it at once.
 
 `eta` is `null` when unknown or negative. `controller` is never JDownloader's raw `STOPPED_STATE`: that and any unknown state are `IDLE`.
 

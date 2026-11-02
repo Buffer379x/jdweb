@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState } from "preact/hooks";
 import { get, post } from "../api/client.ts";
 import { PRIORITIES, type FolderInfo } from "../api/types.ts";
-import { Dialog } from "../components/Dialog.tsx";
+import { ConfirmDialog, Dialog } from "../components/Dialog.tsx";
 import { formatBytes } from "../lib/format.ts";
 import { lang, plural, t, type Key } from "../i18n/index.ts";
 import { pushToast, pushToastForError } from "../store/app.ts";
@@ -64,6 +64,22 @@ export function AddLinksDialog({ onClose }: { onClose: () => void }) {
       .catch(() => {});
   }, []);
 
+  const dirty = text.trim() !== "" || file !== null || pkgName.trim() !== "" || extractPw !== "" || dlPw !== "";
+  // Input is not thrown away by a stray Escape: ask first.
+  const tryClose = () => {
+    if (!dirty || busy) return onClose();
+    openDialog((close) => (
+      <ConfirmDialog
+        title={t("add.discardTitle")}
+        lines={[t("add.discardText")]}
+        confirmLabel={t("add.discard")}
+        danger
+        onConfirm={onClose}
+        onClose={close}
+      />
+    ));
+  };
+
   const textBytes = new TextEncoder().encode(text).length;
   const tooBig = textBytes > MAX_TEXT_BYTES || (file !== null && file.size > MAX_CONTAINER_BYTES);
   const can = (text.trim() !== "" || file !== null) && !tooBig && !busy;
@@ -83,7 +99,6 @@ export function AddLinksDialog({ onClose }: { onClose: () => void }) {
     if (!can) return;
     setBusy(true);
     try {
-      let n = 0;
       if (text.trim() !== "") {
         const body: Record<string, unknown> = { links: text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean) };
         if (pkgName.trim()) body.packageName = pkgName.trim();
@@ -96,14 +111,19 @@ export function AddLinksDialog({ onClose }: { onClose: () => void }) {
         if (deep) body.deepDecrypt = true;
         if (overwrite) body.overwritePackagizerRules = true;
         if (priority !== "DEFAULT") body.priority = priority;
+        const n = countLinks(text);
         await post("/linkgrabber/add", body);
-        n = countLinks(text);
+        // The links are with JDownloader now. If the container fails below, a retry must not send them twice.
+        setText("");
+        pushToast("info", plural("toast.linksSent", n));
+        stores.linkgrabber.reloadSoon(600);
       }
       if (file) {
         await post("/linkgrabber/container", { name: file.name, contentBase64: await readBase64(file) });
+        setFile(null);
+        pushToast("info", t("toast.containerSent"));
+        stores.linkgrabber.reloadSoon(600);
       }
-      pushToast("info", n > 0 ? plural("toast.linksSent", n) : t("toast.containerSent"));
-      stores.linkgrabber.reloadSoon(600);
       onClose();
     } catch (err) {
       pushToastForError(err);
@@ -117,10 +137,11 @@ export function AddLinksDialog({ onClose }: { onClose: () => void }) {
       wide
       sticky
       onClose={onClose}
+      onDismiss={tryClose}
       footer={
         <>
           <span class="foot-hint">{t("add.submitHint")}</span>
-          <button type="button" class="btn" onClick={onClose}>{t("common.cancel")}</button>
+          <button type="button" class="btn" onClick={tryClose}>{t("common.cancel")}</button>
           <button type="submit" form={formId} class="btn pri" disabled={!can}>{t("add.submit")}</button>
         </>
       }

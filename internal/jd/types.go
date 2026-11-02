@@ -1,6 +1,9 @@
 package jd
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"strings"
+)
 
 // Priority of a link or package.
 type Priority string
@@ -177,6 +180,14 @@ type StatusItem struct {
 
 // AdvancedStatus is the machine readable status of a link, by item name.
 type AdvancedStatus map[string]StatusItem
+
+// FinalLinkState returns how the download of a link ended, as JDownloader names it
+// (FINISHED, OFFLINE, ...), or "" while it has not ended. It is the machine
+// readable verdict; the text of Status is for people and is never evaluated.
+func (a AdvancedStatus) FinalLinkState() string { return a["FinalLinkState"].ID }
+
+// FinalLinkStateFinished reports whether a final state is one of the successful ones.
+func FinalLinkStateFinished(id string) bool { return strings.HasPrefix(id, "FINISHED") }
 
 // SkipReason returns the reason of a skipped link, or "".
 func (a AdvancedStatus) SkipReason() SkipReason { return SkipReason(a["SkipReason"].ID) }

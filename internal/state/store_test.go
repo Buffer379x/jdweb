@@ -6,6 +6,7 @@ import (
 	"os"
 	"reflect"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -198,6 +199,8 @@ func TestSkipReasonFollowsTheDelta(t *testing.T) {
 	}
 }
 
+var failedStatus = jd.AdvancedStatus{"FinalLinkState": {ID: "OFFLINE", Label: "File not found"}}
+
 func TestLinkStateOrder(t *testing.T) {
 	tests := []struct {
 		name string
@@ -206,6 +209,10 @@ func TestLinkStateOrder(t *testing.T) {
 	}{
 		{"disabled wins over all", jd.DownloadLink{Enabled: false, ExtractionStatus: "ERROR_CRC", Finished: true, Skipped: true, Running: true}, state.LinkDisabled},
 		{"extract error before finished", jd.DownloadLink{Enabled: true, ExtractionStatus: "ERROR_CRC", Finished: true, Skipped: true, Running: true}, state.LinkExtractError},
+		{"extract error before failed", jd.DownloadLink{Enabled: true, ExtractionStatus: "ERROR_CRC", AdvancedStatus: failedStatus}, state.LinkExtractError},
+		{"failed before finished", jd.DownloadLink{Enabled: true, Finished: true, Skipped: true, Running: true, AdvancedStatus: failedStatus}, state.LinkFailed},
+		{"disabled before failed", jd.DownloadLink{Enabled: false, AdvancedStatus: failedStatus}, state.LinkDisabled},
+		{"a successful final state is no failure", jd.DownloadLink{Enabled: true, Finished: true, AdvancedStatus: jd.AdvancedStatus{"FinalLinkState": {ID: "FINISHED"}}}, state.LinkFinished},
 		{"finished before skipped", jd.DownloadLink{Enabled: true, ExtractionStatus: "SUCCESSFUL", Finished: true, Skipped: true, Running: true}, state.LinkFinished},
 		{"skipped before running", jd.DownloadLink{Enabled: true, Skipped: true, Running: true}, state.LinkSkipped},
 		{"running", jd.DownloadLink{Enabled: true, Running: true}, state.LinkRunning},
@@ -539,7 +546,7 @@ func TestDTOJSON(t *testing.T) {
 	}
 	dl, lg := s.Snapshot(state.Downloads), s.Snapshot(state.Linkgrabber)
 	check("DlPackage", dl.DlPackages[0], "id,name,hosts,childCount,bytesTotal,bytesLoaded,speed,eta,enabled,finished,running,saveTo,status,priority,comment,downloadPassword")
-	check("DlLink", dl.DlLinks[0], "id,packageId,name,host,url,bytesTotal,bytesLoaded,speed,eta,enabled,finished,running,skipped,skipReason,extractionStatus,status,priority,comment,downloadPassword,addedDate,finishedDate,state")
+	check("DlLink", dl.DlLinks[0], "id,packageId,name,host,url,bytesTotal,bytesLoaded,speed,eta,enabled,finished,running,skipped,skipReason,extractionStatus,status,priority,comment,downloadPassword,addedDate,finishedDate,finalState,state")
 	check("LgPackage", lg.LgPackages[0], "id,name,hosts,childCount,bytesTotal,saveTo,onlineCount,offlineCount,unknownCount,tempUnknownCount,enabled,priority,comment,downloadPassword")
 	check("LgLink", lg.LgLinks[0], "id,packageId,name,host,url,bytesTotal,availability,enabled,priority,variants,variant,comment,downloadPassword")
 	check("Status", state.Status{}, "connection,connectionDetail,controller,speed,downloads,linkgrabber,captchas,dialogs,toggles,jd")
@@ -1012,5 +1019,44 @@ func BenchmarkReplace10000(b *testing.B) {
 	b.ReportAllocs()
 	for b.Loop() {
 		s.ReplaceDownloads(pkgs, links)
+	}
+}
+
+// Recorded from the test JDownloader (revision 50639): one link that finished, one that
+// went offline while its download started. The text of status says "File not found"; the
+// machine readable verdict is advancedStatus.FinalLinkState.
+func TestRecordedFailedLink(t *testing.T) {
+	raw, err := os.ReadFile("../jd/testdata/dl_query_links_failed.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var res struct {
+		Data []jd.DownloadLink `json:"data"`
+	}
+	if err := json.Unmarshal(raw, &res); err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Data) != 2 {
+		t.Fatalf("%d links in the fixture", len(res.Data))
+	}
+	s := state.New()
+	s.ReplaceDownloads([]jd.DownloadPackage{{UUID: res.Data[0].PackageUUID, Name: "a"}, {UUID: res.Data[1].PackageUUID, Name: "b"}}, res.Data)
+	got := map[string]state.DlLink{}
+	for _, l := range s.Snapshot(state.Downloads).DlLinks {
+		got[l.Name] = l
+	}
+	if l := got["ok-rec2.bin"]; l.State != state.LinkFinished || l.FinalState != "FINISHED" {
+		t.Errorf("finished link = %+v", l)
+	}
+	if l := got["410-rec.bin"]; l.State != state.LinkFailed || l.FinalState != "OFFLINE" || l.Finished {
+		t.Errorf("offline link = %+v", l)
+	}
+
+	// Starting the link again takes the verdict back, without waiting for the next reload.
+	failed := got["410-rec.bin"]
+	id, _ := strconv.ParseInt(failed.ID, 10, 64)
+	s.ApplyEvent(dlEvent("LINK_UPDATE.running", fmt.Sprintf(`{"running":true,"uuid":%d}`, id)))
+	if l := link(t, s, id); l.State != state.LinkRunning || l.FinalState != "" {
+		t.Errorf("after a restart = %+v", l)
 	}
 }

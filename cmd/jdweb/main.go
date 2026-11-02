@@ -176,6 +176,10 @@ func chooseURL(db *store.DB, c config, log *slog.Logger) (url, source string, er
 	return c.JDURL, c.JDURLSource, nil
 }
 
+// staticFiles is where the web app comes from. Tests replace it, so that they do not depend on whether
+// web/dist was built.
+var staticFiles = web.Dist
+
 func serve() error {
 	c, err := loadConfig(os.Getenv)
 	if err != nil {
@@ -216,7 +220,7 @@ func serveWith(ctx context.Context, c config, log *slog.Logger, ready func(addr 
 	}
 	apiSrv := api.New(api.Options{
 		Engine: engine, Store: mirror, Hub: hub, Auth: authSvc, DB: db, Logger: log, Version: version,
-		Static: web.Dist(), OwnPrefixes: own, URLSource: c.JDURLSource,
+		Static: staticFiles(), OwnPrefixes: own, URLSource: c.JDURLSource,
 	})
 
 	ln, err := net.Listen("tcp", c.Listen)

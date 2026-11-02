@@ -23,7 +23,7 @@ export interface SegLink {
 /** How far a single link is, 0 to 1. A finished link is full whatever the bytes say. */
 export function linkFill(l: SegLink): number {
   if (l.state === "finished") return 1;
-  if (l.state === "extractError") return 1;
+  if (l.state === "extractError" || l.state === "failed") return 1;
   if (l.state === "disabled") return 0;
   if (!(l.bytesTotal > 0) || !(l.bytesLoaded > 0)) return 0;
   return Math.min(1, l.bytesLoaded / l.bytesTotal);
@@ -37,7 +37,7 @@ function segmentOf(group: readonly SegLink[]): Seg {
   let done = false;
   for (const l of group) {
     sum += linkFill(l);
-    if (l.state === "extractError") err = true;
+    if (l.state === "extractError" || l.state === "failed") err = true;
     else if (l.state === "running") run = true;
     else if (l.state === "skipped") skip = true;
     else if (l.state === "finished") done = true;
@@ -77,13 +77,14 @@ export interface Summary {
   waiting: number;
 }
 
-/** Counts per state, for the aria-label and the status text of a package. */
+/** Counts per state, for the aria-label and the status text of a package. Failed links and extraction errors both count as errors. */
 export function summarize(links: readonly { state: LinkState }[]): Summary {
   const s: Summary = { total: links.length, finished: 0, errors: 0, running: 0, skipped: 0, disabled: 0, waiting: 0 };
   for (const l of links) {
     switch (l.state) {
       case "finished": s.finished++; break;
-      case "extractError": s.errors++; break;
+      case "extractError":
+      case "failed": s.errors++; break;
       case "running": s.running++; break;
       case "skipped": s.skipped++; break;
       case "disabled": s.disabled++; break;

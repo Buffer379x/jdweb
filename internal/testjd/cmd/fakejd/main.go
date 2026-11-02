@@ -98,6 +98,7 @@ func seed(s *testjd.Server) {
 		link("archiv.part4.rar", "debrid.example", 400*mb, 400*mb, finished),
 		link("archiv.part5.rar", "debrid.example", 300*mb, 300*mb, finished),
 		link("archiv.part6.rar", "debrid.example", 100*mb, 0, func(l *testjd.Link) { l.Skipped, l.SkipReason = true, "DISK_FULL" }),
+		link("archiv.part7.rar", "debrid.example", 100*mb, 0, func(l *testjd.Link) { l.FinalState, l.Status = "OFFLINE", "File not found" }),
 	)
 	long := strings.Repeat("sehr-langer-dateiname-", 22) + ".bin"
 	s.AddPackage(d, testjd.Package{Name: "Feindliche Namen", SaveTo: "/mnt/downloads/hostile"},
@@ -166,6 +167,8 @@ func seedMany(s *testjd.Server, n int) {
 				finished(&l)
 			case r < 50:
 				l.Skipped, l.SkipReason = true, "DISK_FULL"
+			case r < 51:
+				l.FinalState, l.Status = "OFFLINE", "File not found"
 			case r < 52:
 				l.Disabled = true
 			}

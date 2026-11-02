@@ -98,11 +98,16 @@ export function DlPackageRow({ store, id, frame }: { store: ListStore<DlPackage,
   const ver = store.childrenVersion(id).value; // follow the links of the package
   if (!p) return null;
   void ver;
-  const kids = (store.model.children.get(id) ?? []).map((k) => store.model.links.get(k)!).filter(Boolean);
+  const isLive = live.value;
+  // While JDownloader is away nothing runs, whatever the last state says.
+  const kids = (store.model.children.get(id) ?? [])
+    .map((k) => store.model.links.get(k)!)
+    .filter(Boolean)
+    .map((k) => (isLive || k.state !== "running" ? k : { ...k, state: "waiting" as const }));
   const sum = summarize(kids);
   const segs = segments(kids);
   const pct = percent(p.bytesLoaded, p.bytesTotal, p.finished || (sum.total > 0 && sum.finished === sum.total));
-  const status = dlPackageStatus(p, sum, live.value);
+  const status = dlPackageStatus(p, sum, isLive);
   const label =
     t("seg.summary", { done: sum.finished, total: sum.total }) + (sum.errors ? `, ${plural("pkg.errors", sum.errors)}` : "");
   return (
@@ -110,7 +115,7 @@ export function DlPackageRow({ store, id, frame }: { store: ListStore<DlPackage,
       <Name name={p.name} twisty expanded={frame.expanded} count={p.childCount} priority={p.priority} />
       <SizeCell bytes={p.bytesTotal} />
       <div class="cell c-host" role="gridcell"><Hosts hosts={p.hosts} /></div>
-      <div class="cell c-status" role="gridcell"><Status s={{ ...status, text: pkgStatusText(status, p.speed, live.value) }} /></div>
+      <div class="cell c-status" role="gridcell"><Status s={{ ...status, text: pkgStatusText(status, p.speed, isLive) }} /></div>
       <div class="cell c-progress" role="gridcell" title={p.eta != null && p.running ? `${t("field.eta")} ${formatEta(p.eta)}` : undefined}>
         <Segbar segs={segs} label={label} />
         <span class="pct">{formatPercent(pct, lang.value)}</span>

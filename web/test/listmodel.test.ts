@@ -3,11 +3,11 @@ import assert from "node:assert/strict";
 import { buildModel, applyPatch } from "../src/lib/listmodel.ts";
 import { pruneSelection, splitSelection, rangeKeys, toggled } from "../src/lib/selection.ts";
 import { buildRows, filterWords } from "../src/lib/rows.ts";
-import { moveTarget, dropAfter } from "../src/lib/move.ts";
+import { moveTarget, dropAfter, planDrop } from "../src/lib/move.ts";
 import { cleanupCount } from "../src/lib/cleanup.ts";
 
 interface P { id: string; name: string; bytes: number }
-interface L { id: string; packageId: string; name: string; bytesLoaded: number; state?: "finished" | "waiting" | "extractError"; enabled: boolean }
+interface L { id: string; packageId: string; name: string; bytesLoaded: number; state?: "finished" | "waiting" | "extractError" | "failed"; enabled: boolean; finalState?: string; availability?: string }
 const p = (id: string, name = `pkg${id}`, bytes = 0): P => ({ id, name, bytes });
 const l = (id: string, packageId: string, name = `file${id}`, extra: Partial<L> = {}): L => ({ id, packageId, name, bytesLoaded: 0, enabled: true, state: "waiting", ...extra });
 const sample = () => buildModel<P, L>([p("1"), p("2")], [l("11", "1"), l("12", "1"), l("21", "2"), l("99", "404")]);
@@ -130,7 +130,8 @@ test("cleanup counts links by action and selection", () => {
   assert.equal(cleanupCount(m, "DELETE_FINISHED", "ALL", none), 2);
   assert.equal(cleanupCount(m, "DELETE_ALL", "ALL", none), 4);
   assert.equal(cleanupCount(m, "DELETE_DISABLED", "ALL", none), 1);
-  assert.equal(cleanupCount(m, "DELETE_FAILED", "ALL", none), 1);
+  // An extraction error may or may not be part of "failed" for JDownloader: the count is unknown then.
+  assert.equal(cleanupCount(m, "DELETE_FAILED", "ALL", none), null);
   assert.equal(cleanupCount(m, "DELETE_FINISHED", "SELECTED", new Set(["p1"])), 1);
   assert.equal(cleanupCount(m, "DELETE_FINISHED", "SELECTED", new Set(["l21"])), 1);
   assert.equal(cleanupCount(m, "DELETE_FINISHED", "UNSELECTED", new Set(["p1"])), 1);
@@ -149,4 +150,61 @@ test("drop targets", () => {
   assert.equal(dropAfter(s, sel("b"), "a", "after"), null);
   assert.equal(dropAfter(s, sel("b"), "b", "after"), null);
   assert.equal(dropAfter(s, sel("a", "b"), "d", "before"), "c");
+});
+
+test("cleanup counts failed and offline links of the downloads", () => {
+  const m = buildModel<P, L>([p("1")], [
+    l("11", "1", "a", { state: "failed", finalState: "OFFLINE" }),
+    l("12", "1", "b", { state: "failed", finalState: "FAILED" }),
+    l("13", "1", "c", { state: "finished" }),
+    l("14", "1", "d", { state: "waiting", enabled: false }),
+  ]);
+  const none = new Set<string>();
+  assert.equal(cleanupCount(m, "DELETE_FAILED", "ALL", none), 2);
+  assert.equal(cleanupCount(m, "DELETE_OFFLINE", "ALL", none), 1);
+  assert.equal(cleanupCount(m, "DELETE_FAILED", "SELECTED", new Set(["l13"])), 0);
+  assert.equal(cleanupCount(m, "DELETE_DUPE", "ALL", none), null);
+});
+
+const kids: Record<string, string[]> = { P1: ["a", "b", "c"], P2: ["x", "y"], P3: [] };
+const plan = (over: Record<string, unknown>) =>
+  planDrop({
+    dragged: "link", ids: new Set(["b"]), target: { kind: "link", id: "c", packageId: "P1" }, pos: "after",
+    order: ["P1", "P2", "P3"], children: (p: string) => kids[p] ?? [], targetExpanded: false, ...over,
+  } as Parameters<typeof planDrop>[0]);
+
+test("a link dropped where it already is does nothing", () => {
+  assert.deepEqual(plan({ target: { kind: "link", id: "a", packageId: "P1" }, pos: "after" }), { kind: "noop" });
+  assert.deepEqual(plan({ target: { kind: "link", id: "c", packageId: "P1" }, pos: "before" }), { kind: "noop" });
+  assert.deepEqual(plan({ target: { kind: "link", id: "b", packageId: "P1" }, pos: "after" }), { kind: "noop" });
+  assert.deepEqual(plan({ ids: new Set(["a"]), target: { kind: "pkg", id: "P1", packageId: "P1" }, targetExpanded: true, pos: "into" }), { kind: "noop" });
+});
+
+test("a link dropped within its package moves behind the right sibling", () => {
+  assert.deepEqual(plan({ target: { kind: "link", id: "c", packageId: "P1" }, pos: "after" }), { kind: "links", after: "c", destPackageId: "P1" });
+  assert.deepEqual(plan({ ids: new Set(["c"]), target: { kind: "link", id: "a", packageId: "P1" }, pos: "before" }), { kind: "links", after: "-1", destPackageId: "P1" });
+  assert.deepEqual(plan({ ids: new Set(["c"]), target: { kind: "link", id: "b", packageId: "P1" }, pos: "before" }), { kind: "links", after: "a", destPackageId: "P1" });
+});
+
+test("links dropped on another package go to its end when closed, to its top when open", () => {
+  const ids = new Set(["a"]);
+  assert.deepEqual(plan({ ids, target: { kind: "pkg", id: "P2", packageId: "P2" }, pos: "into", targetExpanded: false }), { kind: "links", after: "y", destPackageId: "P2" });
+  assert.deepEqual(plan({ ids, target: { kind: "pkg", id: "P2", packageId: "P2" }, pos: "into", targetExpanded: true }), { kind: "links", after: "-1", destPackageId: "P2" });
+  assert.deepEqual(plan({ ids, target: { kind: "pkg", id: "P3", packageId: "P3" }, pos: "into", targetExpanded: false }), { kind: "links", after: "-1", destPackageId: "P3" });
+});
+
+test("links dropped on a link of another package land behind or before it", () => {
+  assert.deepEqual(plan({ ids: new Set(["a"]), target: { kind: "link", id: "x", packageId: "P2" }, pos: "after" }), { kind: "links", after: "x", destPackageId: "P2" });
+  assert.deepEqual(plan({ ids: new Set(["a"]), target: { kind: "link", id: "x", packageId: "P2" }, pos: "before" }), { kind: "links", after: "-1", destPackageId: "P2" });
+  assert.deepEqual(plan({ ids: new Set(["a", "b"]), target: { kind: "link", id: "y", packageId: "P2" }, pos: "before" }), { kind: "links", after: "x", destPackageId: "P2" });
+});
+
+test("packages go between packages and never onto a link", () => {
+  const base = { dragged: "package", ids: new Set(["P3"]) };
+  assert.deepEqual(plan({ ...base, target: { kind: "link", id: "a", packageId: "P1" }, pos: "after" }), { kind: "invalid" });
+  assert.deepEqual(plan({ ...base, target: { kind: "pkg", id: "P1", packageId: "P1" }, pos: "into" }), { kind: "invalid" });
+  assert.deepEqual(plan({ ...base, target: { kind: "pkg", id: "P1", packageId: "P1" }, pos: "before" }), { kind: "packages", after: "-1" });
+  assert.deepEqual(plan({ ...base, target: { kind: "pkg", id: "P1", packageId: "P1" }, pos: "after" }), { kind: "packages", after: "P1" });
+  assert.deepEqual(plan({ ...base, target: { kind: "pkg", id: "P2", packageId: "P2" }, pos: "after" }), { kind: "noop" });
+  assert.deepEqual(plan({ ...base, ids: new Set<string>() }), { kind: "invalid" });
 });

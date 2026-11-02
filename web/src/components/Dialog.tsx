@@ -12,12 +12,18 @@ interface DialogProps {
   children: ComponentChildren;
   footer?: ComponentChildren;
   wide?: boolean;
-  /** Closing by Escape or the backdrop would lose input: ask for it to be off. */
+  /** A click beside the dialog does not close it, input would be lost. */
   sticky?: boolean;
+  /** What Escape and the close button do; the default is `onClose`. A dialog with input asks first. */
+  onDismiss?: () => void;
+  /** An alert dialog interrupts: it is for questions that must be answered. */
+  alert?: boolean;
 }
 
 /** A modal dialog: focus moves in, Tab stays inside, Escape closes, focus returns where it was. */
-export function Dialog({ title, onClose, children, footer, wide, sticky }: DialogProps) {
+export function Dialog({ title, onClose, children, footer, wide, sticky, onDismiss, alert }: DialogProps) {
+  const dismiss = onDismiss ?? onClose;
+  const bodyId = useId();
   const ref = useRef<HTMLDivElement>(null);
   const titleId = useId();
   useEffect(() => {
@@ -33,7 +39,7 @@ export function Dialog({ title, onClose, children, footer, wide, sticky }: Dialo
     if (e.key === "Escape") {
       e.stopPropagation();
       e.preventDefault();
-      onClose();
+      dismiss();
     } else if (e.key === "Tab") {
       const els = [...ref.current!.querySelectorAll<HTMLElement>(FOCUSABLE)].filter((x) => x.offsetParent !== null);
       if (els.length === 0) return;
@@ -49,15 +55,15 @@ export function Dialog({ title, onClose, children, footer, wide, sticky }: Dialo
     }
   };
   return (
-    <div class="scrim" onMouseDown={(e) => e.target === e.currentTarget && !sticky && onClose()}>
-      <div ref={ref} class={`dialog${wide ? " wide" : ""}`} role="dialog" aria-modal="true" aria-labelledby={titleId} onKeyDown={onKey}>
+    <div class="scrim" onMouseDown={(e) => e.target === e.currentTarget && !sticky && dismiss()}>
+      <div ref={ref} class={`dialog${wide ? " wide" : ""}`} role={alert ? "alertdialog" : "dialog"} aria-modal="true" aria-labelledby={titleId} aria-describedby={alert ? bodyId : undefined} onKeyDown={onKey}>
         <header class="dialog-head">
           <h2 id={titleId}>{title}</h2>
-          <button type="button" class="icon-btn" onClick={onClose} aria-label={t("common.close")}>
+          <button type="button" class="icon-btn" onClick={dismiss} aria-label={t("common.close")}>
             <Icon name="x" />
           </button>
         </header>
-        <div class="dialog-body">{children}</div>
+        <div class="dialog-body" id={bodyId}>{children}</div>
         {footer ? <footer class="dialog-foot">{footer}</footer> : null}
       </div>
     </div>
@@ -90,6 +96,7 @@ export function ConfirmDialog({ title, lines, confirmLabel, danger, onConfirm, o
     <Dialog
       title={title}
       onClose={onClose}
+      alert
       footer={
         <>
           <button type="button" class="btn" data-autofocus onClick={onClose}>

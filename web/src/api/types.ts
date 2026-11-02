@@ -4,7 +4,7 @@ export type ConnectionState = "connected" | "syncing" | "offline" | "misconfigur
 export type Controller = "IDLE" | "RUNNING" | "PAUSE" | "STOPPING";
 export type ListName = "downloads" | "linkgrabber";
 
-export type LinkState = "disabled" | "extractError" | "finished" | "skipped" | "running" | "waiting";
+export type LinkState = "disabled" | "extractError" | "failed" | "finished" | "skipped" | "running" | "waiting";
 
 export type Priority = "HIGHEST" | "HIGHER" | "HIGH" | "DEFAULT" | "LOW" | "LOWER" | "LOWEST";
 export const PRIORITIES: readonly Priority[] = ["HIGHEST", "HIGHER", "HIGH", "DEFAULT", "LOW", "LOWER", "LOWEST"];
@@ -62,6 +62,8 @@ export interface DlLink {
   running: boolean;
   skipped: boolean;
   skipReason: string;
+  /** How JDownloader ended the download: FINISHED, OFFLINE, ... Empty while it has not ended. */
+  finalState: string;
   extractionStatus: string;
   status: string;
   priority: string;

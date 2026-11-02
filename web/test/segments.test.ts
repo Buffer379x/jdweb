@@ -6,6 +6,7 @@ const fin = (): SegLink => ({ state: "finished", bytesLoaded: 10, bytesTotal: 10
 const run = (p: number): SegLink => ({ state: "running", bytesLoaded: p, bytesTotal: 100 });
 const wait = (): SegLink => ({ state: "waiting", bytesLoaded: 0, bytesTotal: 100 });
 const err = (): SegLink => ({ state: "extractError", bytesLoaded: 10, bytesTotal: 10 });
+const failed = (): SegLink => ({ state: "failed", bytesLoaded: 0, bytesTotal: 10 });
 
 test("one segment per link up to 24", () => {
   assert.equal(segments([]).length, 0);
@@ -71,4 +72,13 @@ test("fill is clamped and tolerates zero totals", () => {
 test("summary counts states for the label", () => {
   const s = summarize([{ state: "finished" }, { state: "finished" }, { state: "finished" }, { state: "extractError" }, { state: "waiting" }]);
   assert.deepEqual(s, { total: 5, finished: 3, errors: 1, running: 0, skipped: 0, disabled: 0, waiting: 1 });
+});
+
+test("a failed link colors its segment as an error, like an extraction error", () => {
+  assert.deepEqual(segments([failed()])[0], { fill: 1, kind: "err" });
+  const links = [...Array.from({ length: 30 }, wait)];
+  links[10] = failed();
+  const s = segments(links);
+  assert.equal(s.filter((x) => x.kind === "err").length, 1);
+  assert.deepEqual(summarize([{ state: "failed" }, { state: "extractError" }, { state: "finished" }]).errors, 2);
 });

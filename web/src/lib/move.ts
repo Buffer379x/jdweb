@@ -50,3 +50,56 @@ export function dropAfter(siblings: readonly string[], selected: ReadonlySet<str
   const result = [...without.slice(0, at), ...moved, ...without.slice(at)];
   return result.every((id, i) => id === siblings[i]) ? null : after;
 }
+
+export type DropPlan =
+  | { kind: "packages"; after: string }
+  | { kind: "links"; after: string; destPackageId: string }
+  /** The drop leaves the order as it is. */
+  | { kind: "noop" }
+  /** The drop is not allowed (packages onto a link, nothing dragged). */
+  | { kind: "invalid" };
+
+export interface DropInput {
+  /** What is dragged, decided when the drag started. */
+  dragged: "package" | "link";
+  ids: ReadonlySet<string>;
+  target: { kind: "pkg" | "link"; id: string; packageId: string };
+  pos: "before" | "after" | "into";
+  /** Package ids in list order. */
+  order: readonly string[];
+  children: (packageId: string) => readonly string[];
+  /** Whether the target package shows its links. */
+  targetExpanded: boolean;
+}
+
+/** Where a drop puts the dragged entries, as an action of docs/api.md, or why it does nothing. */
+export function planDrop(d: DropInput): DropPlan {
+  if (d.ids.size === 0) return { kind: "invalid" };
+  if (d.dragged === "package") {
+    // Packages only go between packages. A link row is no place for them.
+    if (d.target.kind !== "pkg" || d.pos === "into") return { kind: "invalid" };
+    const after = dropAfter(d.order, d.ids, d.target.id, d.pos);
+    return after === null ? { kind: "noop" } : { kind: "packages", after };
+  }
+  const dest = d.target.packageId;
+  const siblings = d.children(dest);
+  const rest = siblings.filter((id) => !d.ids.has(id));
+  let after: string;
+  if (d.target.kind === "pkg") {
+    // Onto a package: to the top of an open one, to the end of a closed one.
+    after = d.targetExpanded ? "-1" : (rest[rest.length - 1] ?? "-1");
+  } else {
+    if (d.ids.has(d.target.id)) return { kind: "noop" };
+    const k = rest.indexOf(d.target.id);
+    if (k < 0) return { kind: "invalid" };
+    after = d.pos === "after" ? d.target.id : k === 0 ? "-1" : rest[k - 1]!;
+  }
+  // Only entries that are in the package already can be a no-op: keep their order and see.
+  if (d.ids.size === siblings.filter((id) => d.ids.has(id)).length) {
+    const at = after === "-1" ? 0 : rest.indexOf(after) + 1;
+    const moved = siblings.filter((id) => d.ids.has(id));
+    const next = [...rest.slice(0, at), ...moved, ...rest.slice(at)];
+    if (next.every((id, i) => id === siblings[i])) return { kind: "noop" };
+  }
+  return { kind: "links", after, destPackageId: dest };
+}

@@ -3,7 +3,7 @@ import { signal } from "@preact/signals";
 import type { Column } from "../components/VirtualTable.tsx";
 import { VirtualTable } from "../components/VirtualTable.tsx";
 import { Menu } from "../components/Menu.tsx";
-import { dropAfter } from "../lib/move.ts";
+import { planDrop, type DropPlan } from "../lib/move.ts";
 import { isPkgKey, idOfKey, rangeKeys, toggled } from "../lib/selection.ts";
 import { t, type Key } from "../i18n/index.ts";
 import { live, helpOpen } from "../store/app.ts";
@@ -39,8 +39,8 @@ export function openActionMenu(at: { x: number; y: number } | DOMRect): void {
   menuAt.value = { at };
 }
 
-// Drag state lives outside the render: it changes at 60 Hz.
-let dragKeys: string[] = [];
+// Drag state lives outside the render: it changes at 60 Hz. What is dragged is fixed when the drag starts.
+let drag: { kind: "package" | "link"; ids: Set<string> } | null = null;
 
 export function ListView({ store }: { store: AnyStore }) {
   const rows = store.rows.value;
@@ -176,7 +176,8 @@ export function ListView({ store }: { store: AnyStore }) {
       case "A":
         if (mod) {
           e.preventDefault();
-          store.selection.value = new Set(keysOf());
+          // The matches are added to the selection; what the filter hides is not touched.
+          store.selection.value = new Set([...store.selection.peek(), ...keysOf()]);
         }
         break;
       case "ContextMenu": {
@@ -196,60 +197,57 @@ export function ListView({ store }: { store: AnyStore }) {
     const hit = rowOf(e.target);
     if (!hit || !canDrag) return e.preventDefault();
     if (!store.selection.peek().has(hit.key)) selectOnly(hit.key);
-    dragKeys = [...store.selection.peek()];
-    const pk = dragKeys.filter(isPkgKey).length;
-    if (pk !== 0 && pk !== dragKeys.length) {
-      dragKeys = [];
+    const keys = [...store.selection.peek()];
+    const pk = keys.filter(isPkgKey).length;
+    if (pk !== 0 && pk !== keys.length) {
+      // Packages and links together have no common place to go to.
+      drag = null;
       return e.preventDefault();
     }
-    e.dataTransfer?.setData("application/x-jdweb-rows", String(dragKeys.length));
+    drag = { kind: pk ? "package" : "link", ids: new Set(keys.map(idOfKey)) };
+    e.dataTransfer?.setData("application/x-jdweb-rows", String(keys.length));
     if (e.dataTransfer) e.dataTransfer.effectAllowed = "move";
   };
-  const dropInfo = (e: DragEvent) => {
-    if (!dragKeys.length) return null;
+  /** What a drop at the pointer would do. Only moves that change something are offered. */
+  const dropAt = (e: DragEvent): { key: string; pos: "before" | "after" | "into"; plan: DropPlan } | null => {
+    if (!drag) return null;
     const hit = rowOf(e.target);
-    if (!hit) return null;
-    const row = rows[hit.index];
+    const row = hit && rows[hit.index];
     if (!row) return null;
     const el = (e.target as HTMLElement).closest<HTMLElement>("[data-key]")!;
     const r = el.getBoundingClientRect();
-    const pos: "before" | "after" = e.clientY < r.top + r.height / 2 ? "before" : "after";
-    const draggingPkgs = isPkgKey(dragKeys[0]!);
-    if (draggingPkgs) return { row, pos, key: row.key };
-    if (row.kind === "pkg") return { row, pos: "into" as const, key: row.key };
-    return { row, pos, key: row.key };
+    const half: "before" | "after" = e.clientY < r.top + r.height / 2 ? "before" : "after";
+    const pos = drag.kind === "link" && row.kind === "pkg" ? "into" : half;
+    const plan = planDrop({
+      dragged: drag.kind,
+      ids: drag.ids,
+      target: { kind: row.kind, id: row.id, packageId: row.packageId },
+      pos,
+      order: store.model.order,
+      children: (id) => store.model.children.get(id) ?? [],
+      targetExpanded: store.expanded.peek().has(row.id),
+    });
+    return plan.kind === "packages" || plan.kind === "links" ? { key: row.key, pos, plan } : null;
   };
   const onDragOver = (e: DragEvent) => {
-    const d = dropInfo(e);
-    if (!d) return;
+    const d = dropAt(e);
+    if (!d) {
+      if (drop) setDrop(null);
+      return; // no preventDefault: the pointer shows that this is no place to drop
+    }
     e.preventDefault();
     if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
     if (drop?.key !== d.key || drop.pos !== d.pos) setDrop({ key: d.key, pos: d.pos });
   };
   const onDrop = (e: DragEvent) => {
     e.preventDefault();
-    const d = dropInfo(e);
+    const d = dropAt(e);
+    const ids = drag ? [...drag.ids] : [];
+    drag = null;
     setDrop(null);
     if (!d) return;
-    const ids = new Set(dragKeys.map(idOfKey));
-    dragKeys = [];
-    if (d.pos === "into") return void moveInto(d.row.id, ids);
-    if (d.row.kind === "pkg" && !isPkgKey([...ids][0] ? `p${[...ids][0]}` : "") ) return;
-    if (store.model.pkgs.has([...ids][0]!) && d.row.kind === "pkg") {
-      const after = dropAfter(store.model.order, ids, d.row.id, d.pos as "before" | "after");
-      if (after !== null) void runAction(store.name, "move-packages", { packageIds: [...ids], afterPackageId: after }, store);
-    } else if (d.row.kind === "link") {
-      const dest = d.row.packageId;
-      const sibs = store.model.children.get(dest) ?? [];
-      // Links of other packages are moved into this one: they are not in `sibs`, so "after" is computed on the rest.
-      const after = dropAfter([...sibs, ...[...ids].filter((i) => !sibs.includes(i))], ids, d.row.id, d.pos as "before" | "after") ?? (ids.has(d.row.id) ? null : "-1");
-      if (after !== null) void runAction(store.name, "move-links", { linkIds: [...ids], afterLinkId: after, destPackageId: dest }, store);
-    }
-  };
-  const moveInto = (pkgId: string, ids: Set<string>) => {
-    const kids = store.model.children.get(pkgId) ?? [];
-    const after = store.expanded.peek().has(pkgId) ? "-1" : (kids.filter((k) => !ids.has(k)).pop() ?? "-1");
-    void runAction(store.name, "move-links", { linkIds: [...ids], afterLinkId: after, destPackageId: pkgId }, store);
+    if (d.plan.kind === "packages") void runAction(store.name, "move-packages", { packageIds: ids, afterPackageId: d.plan.after }, store);
+    else if (d.plan.kind === "links") void runAction(store.name, "move-links", { linkIds: ids, afterLinkId: d.plan.after, destPackageId: d.plan.destPackageId }, store);
   };
 
   const columns = (isDl ? DL_COLUMNS : LG_COLUMNS).map((c) => ({ ...c, label: t(c.label as Key) }));
@@ -304,7 +302,7 @@ export function ListView({ store }: { store: AnyStore }) {
       onDragStart={onDragStart}
       onDragOver={onDragOver}
       onDragLeave={() => setDrop(null)}
-      onDragEnd={() => { dragKeys = []; setDrop(null); }}
+      onDragEnd={() => { drag = null; setDrop(null); }}
       onDrop={onDrop}
     >
       <VirtualTable
@@ -325,7 +323,10 @@ export function ListView({ store }: { store: AnyStore }) {
             tabIndex={-1}
             onClick={(e) => {
               e.stopPropagation();
-              store.selection.value = allSelected ? new Set() : new Set(keysOf());
+              // Only the rows that are shown: what the filter hides keeps its state.
+              const next = new Set(store.selection.peek());
+              for (const k of keysOf()) allSelected ? next.delete(k) : next.add(k);
+              store.selection.value = next;
             }}
           >
             {allSelected ? <Icon name="check" size={12} /> : null}

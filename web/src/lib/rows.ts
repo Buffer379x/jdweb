@@ -40,6 +40,15 @@ function compare(a: string | number, b: string | number): number {
   return collator.compare(String(a), String(b));
 }
 
+/** Sorts ids by a value that is worked out once per id, not once per comparison. */
+function sorted(ids: readonly string[], dir: SortDir, value: (id: string) => string | number): string[] {
+  const keyed = ids.map((id, i) => ({ id, i, v: value(id) }));
+  const sign = dir === "asc" ? 1 : -1;
+  // Equal values keep the order of the list, so that the view does not jump.
+  keyed.sort((a, b) => sign * compare(a.v, b.v) || a.i - b.i);
+  return keyed.map((k) => k.id);
+}
+
 function matches(text: string, words: readonly string[]): boolean {
   const t = text.toLowerCase();
   return words.every((w) => t.includes(w));
@@ -54,9 +63,8 @@ export function buildRows<P extends HasId, L extends HasPackage>(m: Model<P, L>,
   const filtering = o.words.length > 0;
   let pkgIds = m.order;
   if (o.sort) {
-    const { col, dir } = o.sort;
-    const sign = dir === "asc" ? 1 : -1;
-    pkgIds = [...pkgIds].sort((a, b) => sign * compare(o.sortValuePackage(m.pkgs.get(a)!, col), o.sortValuePackage(m.pkgs.get(b)!, col)));
+    const { col } = o.sort;
+    pkgIds = sorted(pkgIds, o.sort.dir, (id) => o.sortValuePackage(m.pkgs.get(id)!, col));
   }
   const rows: Row[] = [];
   for (const pid of pkgIds) {
@@ -74,9 +82,8 @@ export function buildRows<P extends HasId, L extends HasPackage>(m: Model<P, L>,
     rows.push({ key: pkgKey(pid), kind: "pkg", id: pid, packageId: pid });
     if (!open) continue;
     if (o.sort) {
-      const { col, dir } = o.sort;
-      const sign = dir === "asc" ? 1 : -1;
-      kids = [...kids].sort((a, b) => sign * compare(o.sortValueLink(m.links.get(a)!, col), o.sortValueLink(m.links.get(b)!, col)));
+      const { col } = o.sort;
+      kids = sorted(kids, o.sort.dir, (id) => o.sortValueLink(m.links.get(id)!, col));
     }
     for (const id of kids) rows.push({ key: linkKey(id), kind: "link", id, packageId: pid });
   }

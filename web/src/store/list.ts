@@ -17,8 +17,10 @@ export interface ListSpec<P, L> {
   textOfLink: (l: L) => string;
   sortValuePackage: (p: P, col: string) => string | number;
   sortValueLink: (l: L, col: string) => string | number;
-  /** Fields of a patch that can change what the filter or the sort sees. */
-  viewFields: ReadonlySet<string>;
+  /** Fields of a patch that change the text the filter looks at. Nothing that changes with every progress patch belongs here. */
+  filterFields: ReadonlySet<string>;
+  /** Fields of a patch that change the order when the list is sorted by this column. */
+  sortFields: (col: string) => ReadonlySet<string>;
 }
 
 function shallowEqual(a: object, b: object): boolean {
@@ -203,16 +205,21 @@ export class ListStore<P extends PackageLike, L extends LinkLike> {
       const v = this.pkgVer.get(m.packageId);
       if (v) v.value++;
     }
-    if (res.fields.size && (this.filter.peek() || this.sort.peek())) {
-      for (const f of res.fields) {
-        if (this.spec.viewFields.has(f)) {
-          this.viewVer.value++;
-          break;
-        }
-      }
-    }
+    if (res.fields.size && this.viewAffectedBy(res.fields)) this.viewVer.value++;
     if (res.unknown) this.reloadSoon();
     return !res.unknown;
+  }
+
+  /** Whether a patch with these fields can change which rows show or in which order. With neither filter nor sort it cannot. */
+  private viewAffectedBy(fields: ReadonlySet<string>): boolean {
+    const filtering = this.filter.peek().trim() !== "";
+    const sort = this.sort.peek();
+    if (!filtering && !sort) return false;
+    const sortFields = sort ? this.spec.sortFields(sort.col) : undefined;
+    for (const f of fields) {
+      if ((filtering && this.spec.filterFields.has(f)) || sortFields?.has(f)) return true;
+    }
+    return false;
   }
 
   /** Loads the list again after a short pause; many structure events become one load. */
@@ -251,6 +258,12 @@ export class ListStore<P extends PackageLike, L extends LinkLike> {
   readonly reorderLocked = computed(() => this.filter.value.trim() !== "" || this.sort.value !== null);
 
   reset(): void {
+    // A load that is still on its way belongs to the session that ended: it must not fill the list again.
+    this.generation++;
+    this.loading = false;
+    this.queue = [];
+    clearTimeout(this.reloadTimer);
+    this.reloadTimer = undefined;
     this.model = emptyModel();
     this.pkgSig.clear();
     this.linkSig.clear();

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/fs"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -14,6 +15,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"testing/fstest"
 	"time"
 
 	"github.com/Buffer379x/jdweb/internal/auth"
@@ -293,6 +295,10 @@ func (s *syncBuffer) String() string {
 // The whole server in one process: start, setup with the token from the log,
 // login, an action reaching the fake JDownloader, graceful shutdown.
 func TestServeEndToEnd(t *testing.T) {
+	// A checkout without a build: whatever web/dist holds on this machine does not matter.
+	saved := staticFiles
+	staticFiles = func() fs.FS { return fstest.MapFS{".gitkeep": &fstest.MapFile{}} }
+	t.Cleanup(func() { staticFiles = saved })
 	fake := testjd.New(t)
 	_, links := fake.AddPackage(testjd.Downloads, testjd.Package{Name: "p"}, testjd.Link{Name: "a.bin"})
 	logs := &syncBuffer{}

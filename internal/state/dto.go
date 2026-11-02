@@ -61,6 +61,7 @@ type LinkState string
 const (
 	LinkDisabled     LinkState = "disabled"
 	LinkExtractError LinkState = "extractError"
+	LinkFailed       LinkState = "failed"
 	LinkFinished     LinkState = "finished"
 	LinkSkipped      LinkState = "skipped"
 	LinkRunning      LinkState = "running"
@@ -103,6 +104,7 @@ type DlLink struct {
 	Running          bool      `json:"running"`
 	Skipped          bool      `json:"skipped"`
 	SkipReason       string    `json:"skipReason"`
+	FinalState       string    `json:"finalState"`
 	ExtractionStatus string    `json:"extractionStatus"`
 	Status           string    `json:"status"`
 	Priority         string    `json:"priority"`
@@ -272,7 +274,7 @@ func newDlLink(l jd.DownloadLink) DlLink {
 	out := DlLink{
 		ID: id(l.UUID), PackageID: id(l.PackageUUID), Name: l.Name, Host: l.Host, URL: l.URL, BytesTotal: l.BytesTotal,
 		BytesLoaded: l.BytesLoaded, Speed: max(l.Speed, 0), ETA: NewETA(l.ETA), Enabled: l.Enabled, Finished: l.Finished,
-		Running: l.Running, Skipped: l.Skipped, SkipReason: string(l.AdvancedStatus.SkipReason()),
+		Running: l.Running, Skipped: l.Skipped, SkipReason: string(l.AdvancedStatus.SkipReason()), FinalState: l.AdvancedStatus.FinalLinkState(),
 		ExtractionStatus: l.ExtractionStatus, Status: l.Status, Priority: string(l.Priority), Comment: l.Comment,
 		DownloadPassword: l.Password, AddedDate: l.AddedDate, FinishedDate: l.FinishedDate,
 	}

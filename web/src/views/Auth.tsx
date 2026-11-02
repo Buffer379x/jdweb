@@ -2,7 +2,7 @@ import { useState } from "preact/hooks";
 import { get, isApiError, post } from "../api/client.ts";
 import type { Session } from "../api/types.ts";
 import { t } from "../i18n/index.ts";
-import { checkSession, loadPrefs, session, setupRequired } from "../store/app.ts";
+import { checkSession, session, setupRequired } from "../store/app.ts";
 import { errorText } from "../store/errors.ts";
 import { UserMenuLite } from "./Lite.tsx";
 
@@ -27,7 +27,6 @@ function Frame({ title, intro, children }: { title: string; intro: string; child
 
 async function enter(username: string, password: string, totp?: string): Promise<void> {
   await post("/login", totp ? { username, password, totp } : { username, password }, { ownUnauthorized: true });
-  await loadPrefs();
   session.value = await get<Session>("/session");
 }
 
@@ -125,7 +124,7 @@ export function LoginView() {
         {needTotp ? (
           <label class="field">
             <span class="field-label">{t("login.totp")}</span>
-            <input class="input mono" value={totp} autofocus inputMode="numeric" autocomplete="one-time-code" spellcheck={false} onInput={(e) => setTotp(e.currentTarget.value)} />
+            <input class="input mono" value={totp} autofocus autocomplete="one-time-code" autocapitalize="off" autocorrect="off" spellcheck={false} onInput={(e) => setTotp(e.currentTarget.value)} />
             <span class="field-hint">{t("login.totpHint")}</span>
           </label>
         ) : null}
@@ -133,6 +132,19 @@ export function LoginView() {
         <button type="submit" class="btn pri wide" disabled={busy || user.trim() === "" || pw === "" || (needTotp && totp.trim() === "")}>
           {t("login.submit")}
         </button>
+        {needTotp ? (
+          <button
+            type="button"
+            class="btn wide back"
+            onClick={() => {
+              setNeedTotp(false);
+              setTotp("");
+              setErr("");
+            }}
+          >
+            {t("login.back")}
+          </button>
+        ) : null}
       </form>
     </Frame>
   );

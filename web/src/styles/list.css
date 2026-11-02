@@ -1,6 +1,9 @@
 /* ---- the grid of the lists ----------------------------------------------- */
 .list-wrap { flex: 1; min-height: 0; display: flex; flex-direction: column; position: relative; }
 
+.vt-frame { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.vt-frame.is-empty .vt { flex: none; overflow: visible; }
+.vt-frame .empty { flex: 1; align-content: start; }
 .vt {
   flex: 1; min-height: 0; overflow: auto; position: relative;
   --cols: 34px minmax(200px, 1fr) 92px 150px 180px 250px;
@@ -105,3 +108,4 @@
 .d-item dt { font: 600 12px var(--cond); letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
 .d-item dd { margin: 2px 0 0; overflow-wrap: anywhere; font-size: 13.5px; }
 .d-item dd.mono { font-size: 12.5px; }
+.d-note { display: block; margin-top: 2px; color: var(--muted); font-size: 12.5px; }

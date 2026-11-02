@@ -9,6 +9,7 @@ import { dlLinkStatus, dlPackageStatus, lgLinkStatus, lgPackageStatus } from "..
 import { summarize } from "../lib/segments.ts";
 import type { AnyStore } from "../store/target.ts";
 import type { ComponentChildren } from "preact";
+import type { LinkState } from "../api/types.ts";
 
 function Item({ label, children, mono }: { label: string; children: ComponentChildren; mono?: boolean }) {
   return (
@@ -30,22 +31,33 @@ export function DetailsBody({ store }: { store: AnyStore }) {
   const l = lang.value;
   if (!e) return <p class="muted">{t("details.none")}</p>;
   const isDl = store.name === "downloads";
+  const isLive = live.value;
   const status = isDl
     ? isPkg
-      ? dlPackageStatus(e, summarize((store.model.children.get(id) ?? []).map((c: string) => store.model.links.get(c)!).filter(Boolean)), live.value)
-      : dlLinkStatus(e, live.value)
+      ? dlPackageStatus(
+          e,
+          summarize(
+            (store.model.children.get(id) ?? [])
+              .map((c: string) => store.model.links.get(c)!)
+              .filter(Boolean)
+              // While JDownloader is away nothing runs, whatever the last state says.
+              .map((k: { state: LinkState }) => (isLive || k.state !== "running" ? k : { ...k, state: "waiting" as const })),
+          ),
+          isLive,
+        )
+      : dlLinkStatus(e, isLive)
     : isPkg
       ? lgPackageStatus(e)
       : lgLinkStatus(e);
   return (
     <dl class="d-list">
       <Item label={t("field.name")}>{displayText(e.name)}</Item>
-      <Item label={t("col.status")}><span class="st"><Lamp tone={status.tone} />{status.text}</span></Item>
+      <Item label={t("col.status")}><span class="st" title={status.title}><Lamp tone={status.tone} />{status.text}</span>{status.title ? <span class="d-note" dir="auto">{status.title}</span> : null}</Item>
       {isDl ? (
         <>
           <Item label={t("col.size")} mono>{formatBytes(e.bytesTotal, l)}</Item>
           <Item label={t("col.progress")} mono>{formatPercent(percent(e.bytesLoaded, e.bytesTotal, e.finished), l)} ({formatBytes(e.bytesLoaded, l)})</Item>
-          {e.running ? <Item label={t("col.speed")} mono>{formatSpeed(e.speed, l)} · {formatEta(e.eta)}</Item> : null}
+          {e.running && isLive ? <Item label={t("col.speed")} mono>{formatSpeed(e.speed, l)} · {formatEta(e.eta)}</Item> : null}
         </>
       ) : (
         <Item label={t("col.size")} mono>{formatBytes(e.bytesTotal, l)}</Item>

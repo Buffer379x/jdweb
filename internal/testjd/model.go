@@ -55,8 +55,11 @@ type Link struct {
 	Password         string
 	Status           string
 	ExtractionStatus string
-	AddedDate        int64
-	FinishedDate     int64
+	// FinalState is how the download ended when it did not finish, for example OFFLINE
+	// ("File not found"), reported as advancedStatus.FinalLinkState.
+	FinalState   string
+	AddedDate    int64
+	FinishedDate int64
 	// Variants are the qualities a linkgrabber link can be switched between.
 	// With more than one, the link reports variants:true and the chosen one
 	// (VariantID, the first when empty) as its variant.

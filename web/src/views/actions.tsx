@@ -80,7 +80,7 @@ function promptSimple(store: AnyStore, action: "directory" | "password", title: 
     <PromptDialog
       title={title}
       intro={describe(tg)}
-      fields={[{ name: field, label, value: initial, required, kind: password ? "text" : "text", mono: !password }]}
+      fields={[{ name: field, label, value: initial, required, mono: !password }]}
       submitLabel={t("common.apply")}
       onClose={close}
       onSubmit={async (v) => {

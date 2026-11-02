@@ -237,6 +237,10 @@ func (d *delta) applyDlLink(l *DlLink, s *sink) {
 // run has no speed and no eta, also when a progress event comes in late, and
 // state follows the other fields.
 func settleDlLink(l *DlLink, s *sink) {
+	// A link that runs again has no final state any more. Events cannot say so, the next reload of the list does.
+	if l.Running && l.FinalState != "" {
+		set(s, "finalState", &l.FinalState, "")
+	}
 	if !l.Running {
 		set(s, "speed", &l.Speed, 0)
 		set(s, "eta", &l.ETA, ETAUnknown)

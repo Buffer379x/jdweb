@@ -1,9 +1,9 @@
 import { effect } from "@preact/signals";
 import { useEffect } from "preact/hooks";
 import { Toasts } from "../components/Toasts.tsx";
-import { formatEta, formatSpeed, percent } from "../lib/format.ts";
+import { formatEta, formatPercent, formatSpeed, percent } from "../lib/format.ts";
 import { lang, t } from "../i18n/index.ts";
-import { checkSession, helpOpen, live, loadPrefs, prefs, route, session, setupRequired, status, navigate, pushToastForError } from "../store/app.ts";
+import { checkSession, helpOpen, live, prefs, route, session, setupRequired, status, navigate, pushToastForError } from "../store/app.ts";
 import { dialogStack } from "../store/dialogs.ts";
 import { stores } from "../store/stores.ts";
 import { ensureList, startLive } from "../store/live.ts";
@@ -35,6 +35,8 @@ async function ctl(action: string): Promise<void> {
 function onGlobalKey(e: KeyboardEvent): void {
   if (e.defaultPrevented || dialogStack.value.length || inField(e.target)) return;
   if (e.ctrlKey || e.metaKey || e.altKey) return;
+  // A menu or the key overview that is open keeps the keys to itself.
+  if (helpOpen.value || document.querySelector(".menu-layer, .scrim")) return;
   const s = status.value;
   if (e.key === "?") {
     helpOpen.value = true;
@@ -55,6 +57,7 @@ function onGlobalKey(e: KeyboardEvent): void {
         f.focus();
       }
     } else if ((e.key === "a" || e.key === "A") && live.value) {
+      e.preventDefault(); // or the letter would be typed into the field that the dialog focuses
       openAddLinks();
     } else if (e.key === "Delete" && live.value && route.value !== "settings") {
       removeSelected(route.value === "downloads" ? stores.downloads : stores.linkgrabber);
@@ -70,7 +73,7 @@ effect(() => {
   if (session.value && s) {
     const parts: string[] = [];
     if (live.value && s.downloads.running > 0) {
-      parts.push(`${percent(s.downloads.bytesLoaded, s.downloads.bytesTotal)} %`, formatSpeed(s.speed, l));
+      parts.push(formatPercent(percent(s.downloads.bytesLoaded, s.downloads.bytesTotal), l), formatSpeed(s.speed, l));
       if (s.downloads.eta != null) parts.push(formatEta(s.downloads.eta));
     }
     title = (s.captchas > 0 ? `(${s.captchas}) ` : "") + (parts.length ? `${parts.join(" · ")} – JDWeb` : "JDWeb");
@@ -124,10 +127,6 @@ export function App() {
   const sess = session.value;
   useEffect(() => {
     if (!sess) return;
-    void loadPrefs().then(() => {
-      stores.downloads.loadExpandedFromPrefs();
-      stores.linkgrabber.loadExpandedFromPrefs();
-    });
     startLive();
   }, [!!sess]);
   let body;

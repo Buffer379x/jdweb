@@ -112,3 +112,4 @@ select.input { appearance: none; background-image: linear-gradient(45deg, transp
 .seg .k-done { --c: var(--done); }
 .seg .k-err { --c: var(--err); }
 .pct { display: inline-block; width: 42px; margin-left: 7px; text-align: right; font: 12px var(--mono); color: var(--muted); vertical-align: middle; }
+.btn.back { margin-top: 8px; }

@@ -138,6 +138,9 @@ func advancedStatus(lk *Link) map[string]any {
 	if lk.SkipReason != "" {
 		m["SkipReason"] = map[string]any{"label": "Skipped - " + lk.SkipReason, "id": lk.SkipReason}
 	}
+	if lk.FinalState != "" {
+		m["FinalLinkState"] = map[string]any{"iconKey": "false", "label": "File not found", "id": lk.FinalState}
+	}
 	if lk.Finished {
 		m["FinalLinkState"] = map[string]any{"iconKey": "true", "label": "Finished", "id": "FINISHED"}
 	}

@@ -37,6 +37,7 @@ onUnauthorized.fn = () => {
   if (session.value) {
     session.value = null;
     stopHook.fn();
+    resetPrefs();
   }
 };
 
@@ -70,6 +71,7 @@ export async function logout(): Promise<void> {
   }
   stopHook.fn();
   session.value = null;
+  resetPrefs();
 }
 
 // ---- status ------------------------------------------------------------
@@ -150,6 +152,10 @@ export function initLocalPrefs(): void {
 
 let saveTimer: ReturnType<typeof setTimeout> | undefined;
 let saving = false;
+/** True once the preferences of the server are known. Before that nothing is written: a save would replace them with what this browser holds. */
+let prefsSynced = false;
+/** Changes made while the preferences of the server are not known; they are applied on top once they are. */
+let pendingLocal: Partial<Prefs> = {};
 
 function scheduleSave(): void {
   clearTimeout(saveTimer);
@@ -158,6 +164,7 @@ function scheduleSave(): void {
 
 export async function flushPrefs(): Promise<void> {
   clearTimeout(saveTimer);
+  if (!prefsSynced) return;
   if (saving) {
     scheduleSave();
     return;
@@ -172,18 +179,25 @@ export async function flushPrefs(): Promise<void> {
   }
 }
 
-/** Merges into the preferences and saves them after a pause. */
+/** Merges into the preferences and saves them after a pause (once the preferences of the server are known). */
 export function updatePrefs(patch: Partial<Prefs>): void {
   prefs.value = { ...prefs.value, ...patch };
-  scheduleSave();
+  if (prefsSynced) scheduleSave();
+  else pendingLocal = { ...pendingLocal, ...patch };
 }
 
-export async function loadPrefs(): Promise<void> {
+/** Loads the preferences. Returns false when that failed; it is tried again with the next reconnect. */
+export async function loadPrefs(): Promise<boolean> {
   try {
     const p = await get<Prefs>("/prefs");
-    prefs.value = p && typeof p === "object" ? p : {};
+    const server = p && typeof p === "object" && !Array.isArray(p) ? p : {};
+    const pending = pendingLocal;
+    pendingLocal = {};
+    prefs.value = { ...server, ...pending };
+    prefsSynced = true;
+    if (Object.keys(pending).length) scheduleSave();
   } catch {
-    prefs.value = {};
+    return false;
   }
   // Server preferences win over what this browser remembered.
   if (prefs.value.theme === "dark" || prefs.value.theme === "light") applyTheme(prefs.value.theme);
@@ -191,6 +205,19 @@ export async function loadPrefs(): Promise<void> {
     setLangChoice(prefs.value.lang);
     storeLocal("jdweb.lang", prefs.value.lang);
   }
+  return true;
+}
+
+export function prefsAreSynced(): boolean {
+  return prefsSynced;
+}
+
+/** Forgets what belongs to a signed-in user. */
+export function resetPrefs(): void {
+  clearTimeout(saveTimer);
+  prefsSynced = false;
+  pendingLocal = {};
+  prefs.value = {};
 }
 
 export function chooseTheme(c: ThemeChoice): void {

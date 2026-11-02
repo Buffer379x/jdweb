@@ -4,7 +4,7 @@
 
 import { get, isApiError } from "../api/client.ts";
 import type { ConnectionState, ListName, Patch, Status } from "../api/types.ts";
-import { route, status, stopHook, webReachable } from "./app.ts";
+import { loadPrefs, prefsAreSynced, route, status, stopHook, webReachable } from "./app.ts";
 import { stores } from "./stores.ts";
 
 const BACKOFF_START = 1000;
@@ -39,7 +39,14 @@ function reloadLoaded(): void {
   }
 }
 
+/** The preferences are loaded once; if that failed, with the next reconnect. Nothing is saved before. */
+export async function ensurePrefs(): Promise<void> {
+  if (prefsAreSynced()) return;
+  if (await loadPrefs()) for (const s of Object.values(stores)) s.loadExpandedFromPrefs();
+}
+
 async function refreshAll(): Promise<void> {
+  void ensurePrefs();
   await refreshStatus();
   reloadLoaded();
   if (route.value === "downloads" || route.value === "linkgrabber") ensureList(route.value);
