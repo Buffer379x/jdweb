@@ -43,6 +43,7 @@ type failure struct {
 	path   string
 	status int
 	body   string
+	hang   bool
 }
 
 // Server is a fake JDownloader. Create it with New or Start.
@@ -50,8 +51,9 @@ type Server struct {
 	// URL is the base URL of the API, "http://127.0.0.1:port".
 	URL string
 
-	ts *httptest.Server
-	ln net.Listener
+	ts      *httptest.Server
+	ln      net.Listener
+	closing chan struct{}
 
 	mu         sync.Mutex
 	idSeq      int64
@@ -65,9 +67,11 @@ type Server struct {
 	stopMark   int64
 	toggles    toggles
 	config     map[string]any
+	defaults   map[string]any
 	captchas   []CaptchaJob
 	dialogs    []Dialog
 	revision   int64
+	notDocker  bool
 }
 
 type toggles struct {
@@ -77,12 +81,14 @@ type toggles struct {
 // Start returns a running fake. Close it when done.
 func Start() *Server {
 	s := &Server{
+		closing:    make(chan struct{}),
 		pollWait:   25 * time.Second,
 		subs:       map[int64]*sub{},
 		controller: "IDLE",
 		stopMark:   -1,
 		toggles:    toggles{premium: true, clipboard: true, reconnect: true},
 		config:     defaultConfig(),
+		defaults:   defaultConfig(),
 		revision:   50639,
 	}
 	for i := range s.lists {
@@ -105,6 +111,11 @@ func New(t testing.TB) *Server {
 
 // Close stops the server and ends all waiting listens.
 func (s *Server) Close() {
+	select {
+	case <-s.closing:
+	default:
+		close(s.closing)
+	}
 	s.mu.Lock()
 	for id, sb := range s.subs {
 		sb.close()
@@ -127,7 +138,25 @@ func (s *Server) SetPollTimeout(d time.Duration) {
 // order. A body that starts with "{" is sent as JSON, anything else as text.
 func (s *Server) FailNext(path string, status int, body string) {
 	s.mu.Lock()
-	s.failures = append(s.failures, failure{path, status, body})
+	s.failures = append(s.failures, failure{path: path, status: status, body: body})
+	s.mu.Unlock()
+}
+
+// SetDocker says whether system/getSystemInfos reports docker:true, which is
+// the default like on the real test instance.
+func (s *Server) SetDocker(docker bool) {
+	s.mu.Lock()
+	s.notDocker = !docker
+	s.mu.Unlock()
+}
+
+// HangNext makes the next call to path never answer: it waits until the
+// client gives up or the server closes. JDownloader does this for
+// toolbar/togglePremium when premium is switched off and a confirmation dialog
+// opens. The call shows up in the call log when the wait has ended.
+func (s *Server) HangNext(path string) {
+	s.mu.Lock()
+	s.failures = append(s.failures, failure{path: path, hang: true})
 	s.mu.Unlock()
 }
 
@@ -230,6 +259,13 @@ func (s *Server) answer(ctx context.Context, r *http.Request, body []byte, call 
 		return errorObject(http.StatusForbidden, "AUTH_FAILED", "Bad Origin")
 	}
 	if f, ok := s.takeFailure(call.Path); ok {
+		if f.hang {
+			select {
+			case <-ctx.Done():
+			case <-s.closing:
+			}
+			return http.StatusServiceUnavailable, "text/plain", nil
+		}
 		ct := "text/plain; charset=UTF-8"
 		if strings.HasPrefix(f.body, "{") {
 			ct = "application/json"

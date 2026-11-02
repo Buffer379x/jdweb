@@ -1080,3 +1080,47 @@ func TestConcurrentUse(t *testing.T) {
 	}
 	wg.Wait()
 }
+
+func TestHangNextAnswersNeverUntilTheClientGivesUp(t *testing.T) {
+	s, c := setup(t)
+	s.HangNext("/toolbar/togglePremium")
+	cctx, cancel := context.WithTimeout(ctx, 100*time.Millisecond)
+	defer cancel()
+	if _, err := c.TogglePremium(cctx); err == nil {
+		t.Fatal("a hanging call returned")
+	}
+	// Only that one call hangs.
+	if _, err := c.TogglePremium(ctx); err != nil {
+		t.Fatalf("second call: %v", err)
+	}
+}
+
+func TestSetConfigTypesAndLists(t *testing.T) {
+	s, c := setup(t)
+	const iface = "org.jdownloader.extensions.extraction.ExtractionConfig"
+	s.SetConfig(iface, "PasswordList", []string{"one", "two"})
+	s.SetConfig(iface, "ApiKey", "k")
+	got := map[string]string{}
+	entries, err := c.ConfigQuery(ctx, jd.ConfigQuery{Pattern: "PasswordList|ApiKey", Values: true, DefaultValues: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		got[e.Key] = e.AbstractType + " " + string(e.Value)
+	}
+	if got["PasswordList"] != `STRING_LIST ["one","two"]` || got["ApiKey"] != `STRING "k"` {
+		t.Fatalf("query = %v", got)
+	}
+	if err := c.ConfigSet(ctx, iface, "", "PasswordList", []string{"x"}); err != nil {
+		t.Fatal(err)
+	}
+	if v, _ := s.Config(iface, "PasswordList").([]string); len(v) != 1 || v[0] != "x" {
+		t.Fatalf("list after set = %v", s.Config(iface, "PasswordList"))
+	}
+	if err := c.ConfigReset(ctx, iface, "", "PasswordList"); err != nil {
+		t.Fatal(err)
+	}
+	if v, _ := s.Config(iface, "PasswordList").([]string); len(v) != 2 {
+		t.Fatalf("list after reset = %v", s.Config(iface, "PasswordList"))
+	}
+}

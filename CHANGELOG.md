@@ -11,3 +11,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Repository base: license, version file, API contract, test fixture server and
   a Docker-based JDownloader test stack.
+- REST and server-sent-events API (`internal/api`) and the `jdweb` binary with
+  `serve`, `healthcheck`, `reset-password` and `version`. Started as root, it
+  gives `/data` to `PUID:PGID` and drops root.

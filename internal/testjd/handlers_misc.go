@@ -24,7 +24,7 @@ func init() {
 			"javaVendor": "IcedTea", "javaVersion": 18492009, "javaVersionString": "1.8.0_492-b09",
 			"operatingSystem": "ALPINE", "osFamily": "LINUX", "osString": "Linux",
 			"heapCommitted": 438829056, "heapMax": 2800222208, "heapUsed": 141712024,
-			"startupTimeStamp": startedAt.UnixMilli(), "arch64Bit": true, "docker": true, "jvm64Bit": true, "os64Bit": true,
+			"startupTimeStamp": startedAt.UnixMilli(), "arch64Bit": true, "docker": !s.notDocker, "jvm64Bit": true, "os64Bit": true,
 		}, nil
 	})
 	register("/system/getStorageInfos", func(_ context.Context, s *Server, a args) (any, *apiErr) {
@@ -39,6 +39,27 @@ func init() {
 		register(p, func(_ context.Context, s *Server, a args) (any, *apiErr) { return "", nil })
 	}
 	register("/update/isUpdateAvailable", func(_ context.Context, s *Server, a args) (any, *apiErr) { return false, nil })
+
+	// Calls that change settings of JDownloader this fake does not model: they
+	// are logged and answer success.
+	for _, p := range []string{"/accountsV2/addAccount", "/accountsV2/setUserNameAndPassword", "/accountsV2/enableAccounts",
+		"/accountsV2/disableAccounts", "/accountsV2/removeAccounts", "/accountsV2/refreshAccounts",
+		"/accountsV2/updateBasicAuth", "/accountsV2/removeBasicAuths", "/extraction/addArchivePassword"} {
+		register(p, func(_ context.Context, s *Server, a args) (any, *apiErr) { return "", nil })
+	}
+	for _, p := range []string{"/extensions/install", "/extensions/setEnabled", "/plugins/set", "/plugins/reset",
+		"/extraction/setArchiveSettings", "/extraction/cancelExtraction"} {
+		register(p, func(_ context.Context, s *Server, a args) (any, *apiErr) { return true, nil })
+	}
+	for _, p := range []string{"/linkgrabberv2/setVariant", "/linkgrabberv2/addVariantCopy"} {
+		register(p, func(_ context.Context, s *Server, a args) (any, *apiErr) { return "", nil })
+	}
+	register("/accountsV2/addBasicAuth", func(_ context.Context, s *Server, a args) (any, *apiErr) { return s.nextID(), nil })
+	register("/extraction/startExtractionNow", func(_ context.Context, s *Server, a args) (any, *apiErr) {
+		return map[string]bool{}, nil
+	})
+	register("/extraction/getArchiveInfo", func(_ context.Context, s *Server, a args) (any, *apiErr) { return []any{}, nil })
+	register("/extraction/getArchiveSettings", func(_ context.Context, s *Server, a args) (any, *apiErr) { return []any{}, nil })
 
 	// Lists that are empty in the fake.
 	for _, p := range []string{"/accountsV2/listAccounts", "/accountsV2/listBasicAuth", "/accountsV2/listPremiumHoster",
@@ -496,8 +517,6 @@ func defaultConfig() map[string]any {
 	}
 }
 
-var configDefaults = defaultConfig()
-
 func registerConfig() {
 	register("/config/get", func(_ context.Context, s *Server, a args) (any, *apiErr) {
 		var iface, key string
@@ -541,6 +560,12 @@ func registerConfig() {
 				return false, nil
 			}
 			s.config[k] = v
+		case []string:
+			var v []string
+			if json.Unmarshal(raw, &v) != nil {
+				return false, nil
+			}
+			s.config[k] = v
 		}
 		return true, nil
 	})
@@ -551,7 +576,7 @@ func registerConfig() {
 			return nil, err
 		}
 		k := iface + "/" + key
-		def, ok := configDefaults[k]
+		def, ok := s.defaults[k]
 		if !ok {
 			return false, nil
 		}
@@ -588,6 +613,8 @@ func registerConfig() {
 				e["type"], e["abstractType"] = "boolean", "BOOLEAN"
 			case int64:
 				e["type"], e["abstractType"] = "int", "INT"
+			case []string:
+				e["type"], e["abstractType"] = "java.util.List<java.lang.String>", "STRING_LIST"
 			default:
 				e["type"], e["abstractType"] = "java.lang.String", "STRING"
 			}
@@ -595,12 +622,22 @@ func registerConfig() {
 				e["value"] = s.config[k]
 			}
 			if q.DefaultValues {
-				e["defaultValue"] = configDefaults[k]
+				e["defaultValue"] = s.defaults[k]
 			}
 			out = append(out, e)
 		}
 		return out, nil
 	})
+}
+
+// SetConfig adds or replaces a setting of the fake, and makes it the default
+// the setting is reset to. The type follows the value: bool, int64, string or
+// []string (reported as STRING_LIST).
+func (s *Server) SetConfig(iface, key string, value any) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.config[iface+"/"+key] = value
+	s.defaults[iface+"/"+key] = value
 }
 
 // Config returns the value of a config key of the fake, for example

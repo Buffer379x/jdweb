@@ -995,3 +995,23 @@ func TestWarnsOnceWhenForwardedHeadersCannotBeTrusted(t *testing.T) {
 		t.Fatal("warned although proxies are configured")
 	}
 }
+
+func TestDummyHashIsNotCachedEmptyWhenHashingIsBusy(t *testing.T) {
+	resetDummyHash()
+	defer func() { resetDummyHash() }()
+	hashPending.Store(maxHashQueue) // the queue is full: HashPassword returns ErrBusy
+	busy := dummyHash()
+	hashPending.Store(0)
+	if busy != "" {
+		t.Fatalf("dummy hash while busy = %q, want empty", busy)
+	}
+	if h := dummyHash(); !strings.HasPrefix(h, "$argon2id$") {
+		t.Fatalf("dummy hash after the busy period = %q, want a real hash (an empty value was cached)", h)
+	}
+}
+
+func resetDummyHash() {
+	dummyMu.Lock()
+	dummyVal = ""
+	dummyMu.Unlock()
+}

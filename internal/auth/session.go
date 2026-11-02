@@ -40,21 +40,27 @@ func sessionID(tokenHash string) string { return tokenHash[:16] }
 func trimmed(s string) string { return strings.TrimSpace(s) }
 
 var (
-	dummyOnce sync.Once
-	dummyVal  string
+	dummyMu  sync.Mutex
+	dummyVal string
 )
 
 // dummyHash makes a login for an unknown user cost as much as a real one. It
 // is computed on first use, with the current hashing cost, not at start-up.
+// A failed computation (ErrBusy, say) returns "" and is not remembered: the
+// next call tries again. Verification of "" fails fast, so only the timing
+// equalisation of that one request is lost.
 func dummyHash() string {
-	dummyOnce.Do(func() {
-		h, err := HashPassword("jdweb dummy password for constant-cost logins")
-		if err != nil {
-			h = "" // verification of "" fails fast; only the timing equalisation is lost
-		}
-		dummyVal = h
-	})
-	return dummyVal
+	dummyMu.Lock()
+	defer dummyMu.Unlock()
+	if dummyVal != "" {
+		return dummyVal
+	}
+	h, err := HashPassword("jdweb dummy password for constant-cost logins")
+	if err != nil {
+		return ""
+	}
+	dummyVal = h
+	return h
 }
 
 // Login checks the credentials and opens a session. Every failure looks the
