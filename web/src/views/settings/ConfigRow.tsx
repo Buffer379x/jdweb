@@ -4,18 +4,20 @@
 import { signal } from "@preact/signals";
 import { useEffect } from "preact/hooks";
 import { post, put } from "../../api/client.ts";
+import { announce } from "../../store/announce.ts";
 import { ConfirmDialog } from "../../components/Dialog.tsx";
 import { Icon } from "../../components/Icon.tsx";
 import {
   MASK, editorFor, holdsMask, parseText, sameValue, secretIsSet, shortInterface, valueToText,
   type ConfigEntry, type EditorKind, type ParseError,
 } from "../../lib/editors.ts";
+import { configPaths, revealText, type Api } from "../../lib/configapi.ts";
 import { t, type Key } from "../../i18n/index.ts";
 import { live, pushToastForError } from "../../store/app.ts";
 import { openDialog } from "../../store/dialogs.ts";
 import { errorDetail, errorText } from "../../store/errors.ts";
 
-export type Api = "config" | "plugins";
+export type { Api };
 
 export function entryId(e: ConfigEntry, api: Api): string {
   return `${api}|${e.storage}|${e.interface}|${e.key}`;
@@ -48,12 +50,6 @@ export class RowStates {
     if (!s) this.map.set(id, (s = new RowState(e)));
     return s;
   }
-}
-
-function paths(api: Api) {
-  return api === "config"
-    ? { set: "/config", reset: "/config/reset" }
-    : { set: "/plugins", reset: "/plugins/reset" };
 }
 
 const PARSE_ERRORS: Record<ParseError, Key> = {
@@ -118,22 +114,24 @@ export function ConfigRow({ entry: e, api, state: rs, label, flex, showOrigin = 
     }
     rs.status.value = "saving";
     try {
-      await put(paths(api).set, { interface: e.interface, storage: e.storage, key: e.key, value: parsed.value });
+      await put(configPaths(api).set, { interface: e.interface, storage: e.storage, key: e.key, value: parsed.value });
       rs.value.value = secret ? (Array.isArray(parsed.value) ? (parsed.value.length ? [MASK] : []) : parsed.value === "" ? "" : MASK) : parsed.value;
       rs.draft.value = null;
       rs.revealed.value = false;
+      rs.baseline.value = "";
       rs.status.value = "saved";
+      announce(`${label ?? e.key}: ${t("cfg.saved")}`);
     } catch (err) {
       rs.status.value = "error";
       rs.error.value = [errorText(err), errorDetail(err)].filter(Boolean).join(" ");
+      pushToastForError(err);
     }
   };
 
   const reveal = async () => {
     rs.status.value = "saving";
     try {
-      const r = await post<{ value: unknown }>("/config/reveal", { interface: e.interface, storage: e.storage, key: e.key });
-      const shownText = valueToText(kind, r.value);
+      const shownText = await revealText(api, kind, e);
       rs.baseline.value = shownText;
       rs.draft.value = shownText;
       rs.revealed.value = true;
@@ -147,6 +145,7 @@ export function ConfigRow({ entry: e, api, state: rs, label, flex, showOrigin = 
   const hide = () => {
     rs.draft.value = null;
     rs.revealed.value = false;
+    rs.baseline.value = ""; // the revealed value is forgotten
     rs.status.value = "idle";
     rs.error.value = "";
   };
@@ -162,11 +161,13 @@ export function ConfigRow({ entry: e, api, state: rs, label, flex, showOrigin = 
         confirmLabel={t("cfg.reset")}
         danger
         onConfirm={async () => {
-          await post(paths(api).reset, { interface: e.interface, storage: e.storage, key: e.key });
+          await post(configPaths(api).reset, { interface: e.interface, storage: e.storage, key: e.key });
           rs.value.value = secret ? (kind === "list" ? [] : "") : e.defaultValue;
           rs.draft.value = null;
           rs.revealed.value = false;
+          rs.baseline.value = "";
           rs.status.value = "saved";
+          announce(`${label ?? e.key}: ${t("cfg.saved")}`);
         }}
         onClose={close}
       />
@@ -235,7 +236,7 @@ export function ConfigRow({ entry: e, api, state: rs, label, flex, showOrigin = 
       </div>
       <div class="cfg-edit">{editor}</div>
       <div class="cfg-act">
-        <span class={`cfg-state tone-text-${stateTone}`} role="status" aria-live="polite" id={errId}>{stateText}</span>
+        <span class={`cfg-state tone-text-${stateTone}`} id={errId} title={stateText || undefined}>{stateText}</span>
         <div class="cfg-btns">
           {dirty ? (
             <>

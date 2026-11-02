@@ -1,11 +1,12 @@
 // A long list of settings with a filter: only the visible rows exist in the page. The filter is client
 // side over a precomputed line per entry (under a millisecond for 2,200 entries).
 
-import { useMemo, useRef, useState } from "preact/hooks";
+import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import { Icon } from "../../components/Icon.tsx";
 import { VirtualList } from "../../components/VirtualList.tsx";
 import { filterIndexes, searchLine, type ConfigEntry } from "../../lib/editors.ts";
 import { plural, t } from "../../i18n/index.ts";
+import { announce } from "../../store/announce.ts";
 import { compact } from "../../store/viewport.ts";
 import { ConfigRow, RowStates, type Api } from "./ConfigRow.tsx";
 
@@ -18,6 +19,14 @@ export function ConfigList({ entries, api, label, empty }: { entries: ConfigEntr
   const states = useMemo(() => new RowStates(), [entries]);
   const shownIdx = useMemo(() => filterIndexes(lines, query), [lines, query]);
   const input = useRef<HTMLInputElement>(null);
+  const countText = query ? t("cfg.matches", { n: shownIdx.length, total: entries.length }) : plural("cfg.count", entries.length);
+  // The count of matches is told once typing pauses, not at every key and not when the page opens.
+  const firstCount = useRef(true);
+  useEffect(() => {
+    if (firstCount.current) { firstCount.current = false; return; }
+    const timer = setTimeout(() => announce(countText), 700);
+    return () => clearTimeout(timer);
+  }, [countText]);
   const rowH = compact.value ? CFG_ROW_COMPACT : CFG_ROW;
   return (
     <div class="cfg-list">
@@ -39,9 +48,7 @@ export function ConfigList({ entries, api, label, empty }: { entries: ConfigEntr
             }}
           />
         </label>
-        <span class="mono muted cfg-count" role="status" aria-live="polite">
-          {query ? t("cfg.matches", { n: shownIdx.length, total: entries.length }) : plural("cfg.count", entries.length)}
-        </span>
+        <span class="mono muted cfg-count">{countText}</span>
       </div>
       {shownIdx.length === 0 ? (
         <div class="state-box">

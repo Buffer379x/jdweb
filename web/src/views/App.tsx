@@ -1,5 +1,6 @@
 import { effect } from "@preact/signals";
 import { useEffect } from "preact/hooks";
+import { Announcer } from "../components/Announcer.tsx";
 import { Toasts } from "../components/Toasts.tsx";
 import { formatEta, formatPercent, formatSpeed, percent } from "../lib/format.ts";
 import { lang, t } from "../i18n/index.ts";
@@ -163,6 +164,7 @@ export function App() {
       {dialogStack.value.map((d) => <div key={d.id}>{d.render()}</div>)}
       {helpOpen.value ? <HelpDialog onClose={() => (helpOpen.value = false)} /> : null}
       <Toasts />
+      <Announcer />
     </>
   );
 }
