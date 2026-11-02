@@ -81,6 +81,7 @@ jobs:
           p=$(python3 -c 'import json;print(json.load(open("web/package.json"))["version"])')
           [ "$p" = "$v" ] || { echo "web/package.json says $p, VERSION says $v"; exit 1; }
           grep -q "^ARG VERSION=$v\$" Dockerfile || { echo "Dockerfile ARG VERSION differs from VERSION"; exit 1; }
+          grep -Eq "^## \[(Unreleased|$v)\]" CHANGELOG.md || { echo "CHANGELOG.md has neither [Unreleased] nor [$v]"; exit 1; }
           grep -q "ghcr.io/buffer379x/jdweb:$v\$" compose.yaml || { echo "compose.yaml does not pin the image to $v"; exit 1; }
 
   docker:

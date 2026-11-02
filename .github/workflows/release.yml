@@ -1,3 +1,6 @@
+# Before tagging: rename "## [Unreleased]" in CHANGELOG.md to "## [X.Y.Z] - <date>"
+# (X.Y.Z = the VERSION file), commit it, then tag vX.Y.Z. The release notes are
+# that section, and the job fails when it is missing or empty.
 name: Release
 
 on:

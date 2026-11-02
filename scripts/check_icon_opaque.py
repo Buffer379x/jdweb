@@ -37,5 +37,5 @@ if bpp == 3:
     print(f"OK: {w}x{h}, no alpha channel"); sys.exit(0)
 border = [(x, y) for x in range(w) for y in (0, h - 1)] + [(x, y) for y in range(h) for x in (0, w - 1)]
 bad = [(x, y) for x, y in border if rows[y][x * 4 + 3] != 255]
-print(f"{'OK' if not bad else 'FEHLER'}: {w}x{h}, {len(bad)} non-opaque edge pixels of {len(border)}")
+print(f"{'OK' if not bad else 'FAIL'}: {w}x{h}, {len(bad)} non-opaque edge pixels of {len(border)}")
 sys.exit(1 if bad else 0)

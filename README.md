@@ -21,7 +21,7 @@ JDWeb talks to the API of your own JDownloader over your own network and gives y
 - **Captchas and questions** from JDownloader, in the browser: image captchas, skip, answer dialogs.
 - **Extraction, hoster accounts, settings**, including all advanced settings, plugins and extensions.
 - **Live** through server-sent events. JDownloader restarts? The page shows it, heals itself and catches up.
-- **Safe by default**: account with Argon2id password, optional two-factor (TOTP), setup only with a one-time token, CSRF checks, strict CSP, no third-party resources, fonts inside the image.
+- **Safe by default** (JDWeb's own login and page; for JDownloader's API see [Security](#security-read-this)): account with Argon2id password, optional two-factor (TOTP), setup only with a one-time token, CSRF checks, strict CSP, no third-party resources, fonts inside the image.
 - **Small**: image about 15 MB, about 6 MB of RAM at idle. Dark and light mode, phone layout, German and English by browser language.
 
 | | |
@@ -33,7 +33,7 @@ The screenshots show sample data only (the interface follows the browser languag
 
 ## Before you start: two settings in JDownloader
 
-JDownloader's old API is switched off by default. JDWeb needs it. This is the only change to JDownloader, and its network, IP address and Docker settings stay as they are.
+JDownloader's old API is switched off by default. JDWeb needs it. This is the only change to JDownloader, and its network, IP address and Docker settings stay as they are. Be aware that it opens JDownloader's API, which has no login, to the network: see [Security](#security-read-this).
 
 In JDownloader open **Settings, Advanced Settings** (in the `jlesage` image this is the web interface on port 5800) and set:
 
@@ -42,7 +42,7 @@ In JDownloader open **Settings, Advanced Settings** (in the `jlesage` image this
 | `RemoteAPIConfig: Deprecated Api Enabled` | `true` |
 | `RemoteAPIConfig: Deprecated Api Localhost Only` | `false` |
 
-Then **restart JDownloader**. (Both can be skipped if you use the [shared network option](#option-b-share-jdownloaders-network) below: there `Localhost Only` may stay `true`.)
+Then **restart JDownloader**. (With the [shared network option](#option-b-share-jdownloaders-network) below, `Localhost Only` may stay `true`; `Deprecated Api Enabled` is always required.)
 
 ## Security: read this
 
@@ -58,7 +58,7 @@ Put JDownloader and JDWeb in a Docker network that only they share, and publish 
 
 JDWeb joins the network of the JDownloader container (`--network container:<name>`). The API stays on `127.0.0.1` inside it, so nothing else can reach it, and JDownloader's IP and network stay as they are.
 
-- On Unraid: set the JDWeb **Network Type** to `None`, add `--net=container:<JDownloader container name>` to the template's Extra Parameters, and set `JDWEB_JD_URL=http://127.0.0.1:3128`. Port 7468 must then be published on the **JDownloader** container (ports belong to the network owner): add a Port mapping `7468` there.
+- On Unraid: set the JDWeb **Network Type** to `None`. In **Extra Parameters** keep what the template put there and append `--net=container:<JDownloader container name>` at the end. Set `JDWEB_JD_URL=http://127.0.0.1:3128`. Port 7468 must then be published on the **JDownloader** container (ports belong to the network owner): add a Port mapping `7468` there.
 - `Deprecated Api Localhost Only` can stay `true`.
 - **Caveat:** JDWeb is tied to that one container instance. After a `docker restart` of JDownloader the connection is gone and JDWeb must be restarted too. After JDownloader is recreated (for example by an update) JDWeb must be recreated as well. A restart of JDownloader from inside its own app is fine.
 
@@ -79,7 +79,7 @@ JDWeb speaks plain HTTP. On a trusted home network that is acceptable, but passw
    ```
 
 3. **Docker**, **Add Container**, pick the template **JDWeb**.
-4. **Network Type**: one that can reach JDownloader (the same network JDownloader uses is the safe choice).
+4. **Network Type**: one that can reach JDownloader (the same network JDownloader uses is the safe choice). If JDownloader has its own address on `br0` or another macvlan network, a container in the `bridge` network cannot reach it unless **Settings, Docker, "Host access to custom networks"** is on; the simplest fix is to put JDWeb on the same `br0` network.
 5. **JDownloader address**: `JDWEB_JD_URL` = `http://<JDownloader-IP>:3128`. In a custom network both containers share, `http://<container-name>:3128` works too.
 6. Keep **Data** on the cache or a pool: `/mnt/cache/appdata/jdweb`, not `/mnt/user/...` (FUSE is a risk for SQLite).
 7. **Apply.** Open the container's **Logs** and copy the one-time **setup token**. Open the WebUI, enter the token and create your account. The setup check then confirms the connection or names the fix.

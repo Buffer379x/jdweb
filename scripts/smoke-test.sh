@@ -45,7 +45,11 @@ cleanup() {
 trap cleanup EXIT
 
 # User id of the main process, as docker top shows it (a number: the image has no passwd).
-top_user() { docker top "$1" -o pid,user | awk 'NR==2{print $2}'; }
+top_user() {
+  local out
+  out=$(docker top "$1" -o pid,uid 2>/dev/null) || out=$(docker top "$1" -o pid,user) # ps of some VMs has no uid column
+  awk 'NR==2{print $2}' <<<"$out"
+}
 wait_healthy() { # name seconds
   for _ in $(seq 1 "$2"); do
     [ "$(docker inspect -f '{{.State.Health.Status}}' "$1")" = healthy ] && return 0
@@ -63,7 +67,7 @@ post() { # port path json [curl args...]
 }
 setup_account() { # container port
   local token code body
-  token=$(docker logs "$1" 2>&1 | grep -o '"setup_token":"[^"]*"' | head -1 | cut -d'"' -f4)
+  token=$(docker logs "$1" 2>&1 | sed -n 's/.*"setup_token":"\([^"]*\)".*/\1/p' | sed -n 1p)
   [ -n "$token" ] || fail "no setup token in the log of $1"
   body='{"token":"'$token'","username":"smoke","password":"'$PASSWORD'"}'
   code=$(post "$2" /api/v1/setup "$body")
@@ -98,7 +102,7 @@ U=$(top_user "$NAME")
 echo "== web app and security headers"
 curl -fsS -D "$TMP/h" -o "$TMP/index.html" "http://127.0.0.1:$PORT/" || fail "GET / failed"
 grep -q '<div id="app">' "$TMP/index.html" || fail "index.html is not the web app"
-ASSET=$(grep -o '/assets/[^"]*\.js' "$TMP/index.html" | head -1)
+ASSET=$(grep -o '/assets/[^"]*\.js' "$TMP/index.html" | sed -n 1p)
 [ -n "$ASSET" ] || fail "index.html names no script"
 [ "$(http_code "http://127.0.0.1:$PORT$ASSET")" = 200 ] || fail "script $ASSET not served"
 [ "$(http_code "http://127.0.0.1:$PORT/fonts/barlow-latin-400-normal.woff2")" = 200 ] || fail "font not served"
@@ -119,8 +123,10 @@ setup_account "$NAME" "$PORT"
 [ "$(post "$PORT" /api/v1/login "$LOGIN_BODY" -c "$TMP/jar")" = 204 ] || fail "login failed"
 grep -q jdweb_session "$TMP/jar" || fail "no session cookie"
 [ "$(http_code -b "$TMP/jar" "http://127.0.0.1:$PORT/api/v1/status")" = 200 ] || fail "/api/v1/status with a session is not 200"
-curl -s -b "$TMP/jar" "http://127.0.0.1:$PORT/api/v1/status" | grep -q '"connection"' || fail "status has no connection field"
-curl -s -b "$TMP/jar" "http://127.0.0.1:$PORT/api/v1/session" | grep -q '"username":"smoke"' || fail "session does not name the user"
+STATUS=$(curl -s -b "$TMP/jar" "http://127.0.0.1:$PORT/api/v1/status")
+[[ "$STATUS" == *'"connection"'* ]] || fail "status has no connection field"
+SESSION=$(curl -s -b "$TMP/jar" "http://127.0.0.1:$PORT/api/v1/session")
+[[ "$SESSION" == *'"username":"smoke"'* ]] || fail "session does not name the user"
 echo "   ok (JDownloader is not reachable here, so the connection is reported as down; that is expected)"
 
 echo "== memory at idle (after setup and login, which hash passwords)"
@@ -136,7 +142,8 @@ DUR=$(( $(date +%s) - START ))
 echo "   stopped in ${DUR}s"
 [ "$DUR" -lt 6 ] || fail "stop took ${DUR}s, so SIGTERM was not handled"
 [ "$(docker inspect -f '{{.State.ExitCode}}' "$NAME")" = 0 ] || fail "exit code is $(docker inspect -f '{{.State.ExitCode}}' "$NAME"), not 0"
-docker logs "$NAME" 2>&1 | grep -q '"shutting down"' || fail "no shutdown message in the log"
+LOG=$(docker logs "$NAME" 2>&1)
+[[ "$LOG" == *'"shutting down"'* ]] || fail "no shutdown message in the log"
 docker start "$NAME" >/dev/null
 wait_healthy "$NAME" 40 || fail "not healthy after restart"
 [ "$(curl -s "http://127.0.0.1:$PORT/api/v1/setup/status")" = '{"required":false}' ] || fail "setup is open again after restart"
@@ -169,7 +176,8 @@ fi
 docker run -d --name "$NAME-root" --user 0:0 --read-only --security-opt no-new-privileges:true --memory=256m \
   --health-interval 2s --health-start-period 1s -p "127.0.0.1:$PORT2:7468" -v "$MOUNT:/data" "$IMAGE" >/dev/null
 wait_healthy "$NAME-root" 40 || fail "root start: not healthy"
-docker logs "$NAME-root" 2>&1 | grep -q '"dropped root"' || fail "root start: no 'dropped root' in the log"
+LOG=$(docker logs "$NAME-root" 2>&1)
+[[ "$LOG" == *'"dropped root"'* ]] || fail "root start: no 'dropped root' in the log"
 U=$(top_user "$NAME-root")
 [ "$U" = 99 ] || fail "root start: runs as '$U', not 99"
 setup_account "$NAME-root" "$PORT2"
