@@ -33,6 +33,20 @@ export interface ArchiveEdit {
   clearPasswords?: boolean;
 }
 
+/**
+ * The settings as the form shows them. JDownloader leaves an option null when the archive follows its global
+ * default; the form shows such an option as set (auto extract) or not set (the two removals). The baseline must
+ * be the same, or the form would look edited, and a save would pin the default for this archive.
+ */
+export function normalize(s: ArchiveSettings): ArchiveSettings {
+  return {
+    ...s,
+    autoExtract: s.autoExtract ?? true,
+    removeDownloadLinksAfterExtraction: s.removeDownloadLinksAfterExtraction ?? false,
+    removeFilesAfterExtraction: s.removeFilesAfterExtraction ?? false,
+  };
+}
+
 export interface Revealed {
   /** The settings with the real secrets: what a later edit is compared with, so that showing changes nothing. */
   base: ArchiveSettings;
@@ -46,7 +60,7 @@ export async function revealArchive(archiveId: string, s: ArchiveSettings): Prom
   const r = await post<{ finalPassword?: string; passwords?: string[] }>(`/extraction/archives/${encodeURIComponent(archiveId)}/reveal`, {});
   const finalPassword = r.finalPassword ?? "";
   const passwords = r.passwords ?? [];
-  return { base: { ...s, finalPassword, passwords }, finalPassword, passwords: passwords.join("\n") };
+  return { base: { ...normalize(s), finalPassword, passwords }, finalPassword, passwords: passwords.join("\n") };
 }
 
 export type ArchivePatch = Partial<Pick<ArchiveSettings, "extractPath" | "finalPassword" | "passwords" | "autoExtract" | "removeDownloadLinksAfterExtraction" | "removeFilesAfterExtraction">>;

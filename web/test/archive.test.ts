@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildPatch, hasSecret, revealArchive, splitPasswords, type ArchiveEdit } from "../src/lib/archive.ts";
+import { buildPatch, hasSecret, normalize, revealArchive, splitPasswords, type ArchiveEdit } from "../src/lib/archive.ts";
 import { MASK } from "../src/lib/editors.ts";
 
 const orig = {
@@ -92,5 +92,21 @@ test("after Show nothing is dirty, and the stored list is never cleaned unasked"
 test("revealing an archive without secrets gives empty fields", async () => {
   serve({ finalPassword: "", passwords: [] });
   const r = await revealArchive("x", { ...orig, finalPassword: "", passwords: [] });
+  assert.deepEqual(buildPatch(r.base, { ...same, finalPassword: r.finalPassword, passwords: r.passwords }), {});
+});
+
+test("options JDownloader leaves unset do not make the form look edited", () => {
+  // null: the archive follows the global default. The form shows auto extract on, the removals off.
+  const nulls = { ...orig, autoExtract: null, removeDownloadLinksAfterExtraction: null, removeFilesAfterExtraction: null } as unknown as typeof orig;
+  assert.notDeepEqual(buildPatch(nulls, same), {}, "against the raw settings it looks edited: that was the defect");
+  assert.deepEqual(buildPatch(normalize(nulls), same), {});
+  assert.deepEqual(buildPatch(normalize(nulls), { ...same, extractPath: "/y" }), { extractPath: "/y" }, "a save does not pin the defaults");
+});
+
+test("the reveal keeps the normalised baseline", async () => {
+  serve({ finalPassword: "real", passwords: ["p1"] });
+  const nulls = { ...orig, autoExtract: null } as unknown as typeof orig;
+  const r = await revealArchive("x", nulls);
+  assert.equal(r.base.autoExtract, true);
   assert.deepEqual(buildPatch(r.base, { ...same, finalPassword: r.finalPassword, passwords: r.passwords }), {});
 });

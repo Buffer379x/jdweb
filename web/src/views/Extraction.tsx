@@ -8,7 +8,7 @@ import { Segbar } from "../components/Segbar.tsx";
 import type { Seg } from "../lib/segments.ts";
 import { Icon } from "../components/Icon.tsx";
 import { copyText } from "../components/clipboard.ts";
-import { buildPatch, hasSecret, revealArchive, splitPasswords, type ArchiveEdit } from "../lib/archive.ts";
+import { buildPatch, hasSecret, normalize, revealArchive, splitPasswords, type ArchiveEdit } from "../lib/archive.ts";
 import { MASK } from "../lib/editors.ts";
 import { canCancel, jobState, partCounts, partList, type ArchiveInfo, type ArchiveSettings, type QueueEntry } from "../lib/extraction.ts";
 import { plural, t } from "../i18n/index.ts";
@@ -187,7 +187,7 @@ function ArchiveForm({ archive, onClose }: { archive: ArchiveInfo; onClose: () =
   const [revealed, setRevealed] = useState(false);
   // What the form is compared with: the masked settings, and after "Show" the real ones. Without that the
   // revealed values would differ from the mask and look like an edit.
-  const [base, setBase] = useState<ArchiveSettings | null>(s ?? null);
+  const [base, setBase] = useState<ArchiveSettings | null>(s ? normalize(s) : null);
   const [clearFinal, setClearFinal] = useState(false);
   const [clearList, setClearList] = useState(false);
   const [busy, setBusy] = useState(false);
