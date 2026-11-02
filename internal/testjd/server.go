@@ -79,8 +79,20 @@ type toggles struct {
 	premium, clipboard, reconnect, stopAfter bool
 }
 
-// Start returns a running fake. Close it when done.
-func Start() *Server {
+// Start returns a running fake on a free port. Close it when done.
+func Start() *Server { return start(nil) }
+
+// StartOn returns a running fake that listens on addr, for tools that need a
+// fixed address. Close it when done.
+func StartOn(addr string) (*Server, error) {
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		return nil, err
+	}
+	return start(ln), nil
+}
+
+func start(ln net.Listener) *Server {
 	s := &Server{
 		closing:    make(chan struct{}),
 		pollWait:   25 * time.Second,
@@ -96,6 +108,10 @@ func Start() *Server {
 		s.lists[i].counter = s.nextID() // JDownloader's counters are never 0
 	}
 	s.ts = httptest.NewUnstartedServer(http.HandlerFunc(s.serve))
+	if ln != nil {
+		_ = s.ts.Listener.Close()
+		s.ts.Listener = ln
+	}
 	s.ts.Start()
 	s.ln = s.ts.Listener
 	s.URL = s.ts.URL

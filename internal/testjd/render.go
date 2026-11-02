@@ -71,6 +71,20 @@ func (s *Server) renderLink(l List, lk *Link, q query) map[string]any {
 			}
 			m["availability"] = a
 		}
+		if len(lk.Variants) > 1 {
+			if f["variants"] {
+				m["variants"] = true
+			}
+			if f["variantID"] || f["variantName"] || f["variantIcon"] {
+				cur := lk.Variants[0]
+				for _, v := range lk.Variants {
+					if v.ID == lk.VariantID {
+						cur = v
+					}
+				}
+				m["variant"] = cur
+			}
+		}
 		return m
 	}
 	if f["bytesLoaded"] {

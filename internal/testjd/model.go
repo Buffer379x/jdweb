@@ -57,6 +57,18 @@ type Link struct {
 	ExtractionStatus string
 	AddedDate        int64
 	FinishedDate     int64
+	// Variants are the qualities a linkgrabber link can be switched between.
+	// With more than one, the link reports variants:true and the chosen one
+	// (VariantID, the first when empty) as its variant.
+	Variants  []Variant
+	VariantID string
+}
+
+// Variant is one quality of a linkgrabber link.
+type Variant struct {
+	ID      string `json:"id"`
+	Name    string `json:"name"`
+	IconKey string `json:"iconKey"`
 }
 
 type pkg struct {

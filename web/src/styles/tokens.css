@@ -1,0 +1,67 @@
+/* Tokens of Concept 11.3. Dark ("Nachtschicht") is the default, light is "Frachtpapier". */
+:root {
+  --sans: "Barlow", system-ui, sans-serif;
+  --cond: "Barlow Condensed", "Arial Narrow", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, monospace;
+
+  --bg: #121614;
+  --surface: #1a201d;
+  --raised: #242b27;
+  --line: #3a443e;
+  --control-line: #6f7b73;
+  --text: #ece8dc;
+  --muted: #a3aca4;
+  --accent: #ff6a13;
+  --on-accent: #190b03;
+  --run: #3dd68c;
+  --wait: #e3b341;
+  --err: #ff5c6c;
+  --info: #7da7c7;
+  --done: #7f9c8b;
+
+  --row-h: 34px;
+  --radius: 2px;
+  color-scheme: dark;
+}
+
+:root[data-theme="light"] {
+  --bg: #ece8dc;
+  --surface: #f7f4ea;
+  --raised: #fffdf6;
+  --line: #c9c4b4;
+  --control-line: #857f6e;
+  --text: #191e1b;
+  --muted: #565d57;
+  --accent: #b34100;
+  --on-accent: #fffdf6;
+  --run: #0b7445;
+  --wait: #7f5900;
+  --err: #ae1f38;
+  --info: #2a5d82;
+  --done: #52695c;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]) {
+    --bg: #ece8dc;
+    --surface: #f7f4ea;
+    --raised: #fffdf6;
+    --line: #c9c4b4;
+    --control-line: #857f6e;
+    --text: #191e1b;
+    --muted: #565d57;
+    --accent: #b34100;
+    --on-accent: #fffdf6;
+    --run: #0b7445;
+    --wait: #7f5900;
+    --err: #ae1f38;
+    --info: #2a5d82;
+    --done: #52695c;
+    color-scheme: light;
+  }
+}
+
+@media (max-width: 639px) {
+  :root { --row-h: 56px; }
+}

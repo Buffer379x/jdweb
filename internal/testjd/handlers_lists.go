@@ -128,7 +128,16 @@ func init() {
 	register("/linkgrabberv2/isCollecting", func(_ context.Context, s *Server, a args) (any, *apiErr) { return false, nil })
 	register("/linkcrawler/isCrawling", func(_ context.Context, s *Server, a args) (any, *apiErr) { return false, nil })
 	register("/linkgrabberv2/queryLinkCrawlerJobs", func(_ context.Context, s *Server, a args) (any, *apiErr) { return []any{}, nil })
-	register("/linkgrabberv2/getVariants", func(_ context.Context, s *Server, a args) (any, *apiErr) { return []any{}, nil })
+	register("/linkgrabberv2/getVariants", func(_ context.Context, s *Server, a args) (any, *apiErr) {
+		var id int64
+		if err := a.scan(&id); err != nil {
+			return nil, err
+		}
+		if _, _, lk := s.list(Linkgrabber).findLink(id); lk != nil && len(lk.Variants) > 0 {
+			return lk.Variants, nil
+		}
+		return []any{}, nil
+	})
 	register("/linkgrabberv2/getDownloadFolderHistorySelectionBase", func(_ context.Context, s *Server, a args) (any, *apiErr) {
 		seen := map[string]bool{}
 		out := []string{}
