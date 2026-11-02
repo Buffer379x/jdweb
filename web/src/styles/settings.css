@@ -128,7 +128,8 @@ a.btn { text-decoration: none; }
 .cfg-secret { display: flex; gap: 6px; align-items: center; }
 .cfg-secret .input { flex: 1; min-width: 0; }
 .cfg-act { display: grid; gap: 4px; justify-items: end; min-width: 0; }
-.cfg-state { font-size: 12.5px; min-height: 18px; text-align: right; overflow-wrap: anywhere; line-height: 1.25; max-height: 32px; overflow: hidden; }
+/* The row has a fixed height: a long message is cut after two lines with an ellipsis, its full text is the title and, for an error, a toast. */
+.cfg-state { font-size: 12.5px; min-height: 18px; text-align: right; overflow-wrap: anywhere; line-height: 1.25; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .cfg-btns { display: flex; gap: 6px; }
 .cfg-form { max-width: 980px; border-top: 1px solid var(--line); }
 .cfg-form .cfg-row { border-bottom: 1px solid var(--line); }
@@ -251,7 +252,7 @@ a.btn { text-decoration: none; }
   .cfg-filter { flex-wrap: wrap; gap: 4px 14px; }
   .cfg-filter .filter { flex-basis: 100%; max-width: none; }
   .cfg-row, .cfg-row.flex { grid-template-columns: minmax(0, 1fr); gap: 4px; align-content: start; }
-  .cfg-row { height: 196px; padding: 8px 12px; }
+  .cfg-row { height: 212px; padding: 8px 12px; }
   .cfg-row.flex { height: auto; padding: 12px 0; }
   .cfg-docs { -webkit-line-clamp: 2; }
   .cfg-edit .input, .cfg-edit select { min-height: 44px; }

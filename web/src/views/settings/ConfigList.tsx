@@ -11,7 +11,7 @@ import { compact } from "../../store/viewport.ts";
 import { ConfigRow, RowStates, type Api } from "./ConfigRow.tsx";
 
 export const CFG_ROW = 88;
-export const CFG_ROW_COMPACT = 196;
+export const CFG_ROW_COMPACT = 212;
 
 export function ConfigList({ entries, api, label, empty }: { entries: ConfigEntry[]; api: Api; label: string; empty?: string }) {
   const [query, setQuery] = useState("");
