@@ -13,13 +13,14 @@ func msg(i int) sse.Message {
 	return sse.Message{Event: "status", Data: []byte(fmt.Sprintf(`{"n":%d}`, i))}
 }
 
+// receive may run on any goroutine: on a timeout it reports and returns not ok.
 func receive(t *testing.T, ch <-chan sse.Message) (sse.Message, bool) {
 	t.Helper()
 	select {
 	case m, ok := <-ch:
 		return m, ok
 	case <-time.After(5 * time.Second):
-		t.Fatal("no message within 5 s")
+		t.Error("no message within 5 s")
 		return sse.Message{}, false
 	}
 }
@@ -71,39 +72,30 @@ func TestSlowSubscriberIsDisconnectedWithoutBlockingOthers(t *testing.T) {
 	fast, cancelFast := h.Subscribe()
 	defer cancelFast()
 
+	// Each message waits until the fast one has read the one before. Without that
+	// the burst outruns any reader the scheduler happens not to run (with
+	// GOMAXPROCS=1 always), and the hub rightly drops that reader too.
 	total := sse.BufferSize*3 + 1
-	var got []sse.Message
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		for len(got) < total {
-			m, ok := <-fast
-			if !ok {
-				return
-			}
-			got = append(got, m)
-		}
-	}()
-
-	published := make(chan struct{})
-	go func() {
-		defer close(published)
 		for i := range total {
 			h.Publish(msg(i))
+			m, ok := receive(t, fast)
+			if !ok {
+				t.Errorf("fast subscriber dropped at message %d", i)
+				return
+			}
+			if want := fmt.Sprintf(`{"n":%d}`, i); string(m.Data) != want {
+				t.Errorf("message %d = %s", i, m.Data)
+				return
+			}
 		}
 	}()
 	select {
-	case <-published:
-	case <-time.After(5 * time.Second):
-		t.Fatal("Publish blocked on a slow subscriber")
-	}
-	select {
 	case <-done:
-	case <-time.After(5 * time.Second):
-		t.Fatalf("fast subscriber got %d of %d", len(got), total)
-	}
-	if len(got) != total {
-		t.Fatalf("fast subscriber got %d of %d", len(got), total)
+	case <-time.After(10 * time.Second):
+		t.Fatal("Publish blocked on a slow subscriber")
 	}
 
 	// The slow one keeps what fitted into its buffer, then its channel ends.

@@ -904,6 +904,7 @@ func TestInternalErrorsDoNotStopSync(t *testing.T) {
 	srv.FailNext(pathListen, 500, `{"src":"DEVICE","data":null,"type":"INTERNAL_SERVER_ERROR"}`)
 	srv.FailNext(pathListen, 400, `{"src":"DEVICE","data":"x","type":"BAD_PARAMETERS"}`)
 	progress(srv, link, 321)
+	listenRecovered(t, srv, 3)
 	eventually(t, "events after failed listens", func() bool { return dlLink(t, f.store, link).BytesLoaded == 321 })
 
 	// A failed reload is tried again.
@@ -1343,21 +1344,55 @@ func TestFiveFailedListensGiveUpTheSubscription(t *testing.T) {
 	eventually(t, "events on the new subscription", func() bool { return dlLink(t, f.store, link).BytesLoaded == 444 })
 }
 
-// Failures only count while they are consecutive.
+// listenRecovered waits until failed long-polls in all have been answered and a
+// good one came after them. It reads the call log of the fake, because the mirror
+// proves nothing here: a catch-up reload brings the same values as an event.
+func listenRecovered(t *testing.T, srv *testjd.Server, failed int) {
+	t.Helper()
+	eventually(t, fmt.Sprintf("%d failed long-polls and a good one", failed), func() bool {
+		calls := srv.CallsTo(pathListen)
+		n := 0
+		for _, c := range calls {
+			if c.Status != http.StatusOK {
+				n++
+			}
+		}
+		if n >= failed && (len(calls) == 0 || calls[len(calls)-1].Status != http.StatusOK) {
+			wakeListen(srv) // the next long-poll, or the one waiting, answers well
+		}
+		return n >= failed && len(calls) > 0 && calls[len(calls)-1].Status == http.StatusOK
+	})
+}
+
+// Failures only count while they are consecutive: 4 + good + 4 + good + 4 stays
+// below the limit of 5, 12 failures in all would be far above it.
 func TestGoodListenResetsTheFailureCount(t *testing.T) {
 	srv := testjd.New(t)
 	_, link := addRunning(srv, "dl")
 	f := start(t, srv, fast())
 	f.waitConn(t, state.ConnConnected)
 
-	for round := range 3 {
+	for round := 1; round <= 3; round++ {
 		for range 4 {
 			srv.FailNext(pathListen, 500, "java.lang.NullPointerException")
 		}
-		wakeListen(srv) // the waiting listen answers well, then four fail
-		want := 1000 + round
-		progress(srv, link, int64(want))
-		eventually(t, "the event behind the failures", func() bool { return dlLink(t, f.store, link).BytesLoaded == int64(want) })
+		wakeListen(srv) // a long-poll that waits already cannot fail any more
+		listenRecovered(t, srv, 4*round)
+	}
+
+	// The test is only worth something if it stayed exactly at the limit.
+	run, longest, failed := 0, 0, 0
+	for _, c := range srv.CallsTo(pathListen) {
+		if c.Status == http.StatusOK {
+			run = 0
+			continue
+		}
+		failed++
+		run++
+		longest = max(longest, run)
+	}
+	if longest != 4 || failed != 12 {
+		t.Errorf("%d failed long-polls, at most %d in a row, want 12 and 4", failed, longest)
 	}
 	if n := len(srv.CallsTo("/events/subscribe")); n != 1 {
 		t.Errorf("subscribed %d times", n)
@@ -1365,6 +1400,8 @@ func TestGoodListenResetsTheFailureCount(t *testing.T) {
 	if st := f.e.Status(); st.Connection != state.ConnConnected {
 		t.Errorf("status = %+v", st)
 	}
+	progress(srv, link, 1234)
+	eventually(t, "events go on", func() bool { return dlLink(t, f.store, link).BytesLoaded == 1234 })
 }
 
 // If what answers the long-poll stops being JDownloader, the ping finds out.
