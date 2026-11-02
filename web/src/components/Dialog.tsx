@@ -96,6 +96,7 @@ export function ConfirmDialog({ title, lines, confirmLabel, danger, onConfirm, o
     <Dialog
       title={title}
       onClose={onClose}
+      onDismiss={busy ? () => {} : onClose}
       alert
       footer={
         <>
@@ -158,6 +159,7 @@ export function PromptDialog({ title, intro, fields, submitLabel, onSubmit, onCl
     <Dialog
       title={title}
       onClose={onClose}
+      onDismiss={busy ? () => {} : onClose}
       footer={
         <>
           <button type="button" class="btn" onClick={onClose}>

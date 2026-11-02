@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from "preact/hooks";
 import type { CleanupAction, CleanupMode, CleanupSelection, LinkVariant } from "../api/types.ts";
 import { ConfirmDialog, Dialog } from "../components/Dialog.tsx";
-import { cleanupCount } from "../lib/cleanup.ts";
+import { CLEANUP_ACTIONS as ACTIONS, cleanupCount } from "../lib/cleanup.ts";
 import { plural, t, type Key } from "../i18n/index.ts";
 import { pushToast } from "../store/app.ts";
 import { openDialog } from "../store/dialogs.ts";
@@ -78,10 +78,6 @@ export function VariantsDialog({ linkId, name, variants, onClose }: { linkId: st
   );
 }
 
-const ACTIONS: Record<"downloads" | "linkgrabber", CleanupAction[]> = {
-  downloads: ["DELETE_FINISHED", "DELETE_FAILED", "DELETE_DISABLED", "DELETE_DUPE", "DELETE_ALL"],
-  linkgrabber: ["DELETE_OFFLINE", "DELETE_DISABLED", "DELETE_DUPE", "DELETE_ALL"],
-};
 const MODES: CleanupMode[] = ["REMOVE_LINKS_ONLY", "REMOVE_LINKS_AND_RECYCLE_FILES", "REMOVE_LINKS_AND_DELETE_FILES"];
 const SELECTIONS: CleanupSelection[] = ["ALL", "SELECTED", "UNSELECTED"];
 

@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState } from "preact/hooks";
 import { get, post } from "../api/client.ts";
 import { PRIORITIES, type FolderInfo } from "../api/types.ts";
+import { dismissal } from "../lib/dismiss.ts";
 import { ConfirmDialog, Dialog } from "../components/Dialog.tsx";
 import { formatBytes } from "../lib/format.ts";
 import { lang, plural, t, type Key } from "../i18n/index.ts";
@@ -67,7 +68,9 @@ export function AddLinksDialog({ onClose }: { onClose: () => void }) {
   const dirty = text.trim() !== "" || file !== null || pkgName.trim() !== "" || extractPw !== "" || dlPw !== "";
   // Input is not thrown away by a stray Escape: ask first.
   const tryClose = () => {
-    if (!dirty || busy) return onClose();
+    const d = dismissal(dirty, busy);
+    if (d === "ignore") return;
+    if (d === "close") return onClose();
     openDialog((close) => (
       <ConfirmDialog
         title={t("add.discardTitle")}

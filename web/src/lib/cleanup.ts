@@ -53,3 +53,9 @@ export function cleanupCount<P extends HasId, L extends HasPackage & CleanupLink
   }
   return n;
 }
+
+/** The cleanup actions each list offers, in the order of the dialog. */
+export const CLEANUP_ACTIONS: Record<"downloads" | "linkgrabber", CleanupAction[]> = {
+  downloads: ["DELETE_FINISHED", "DELETE_FAILED", "DELETE_OFFLINE", "DELETE_DISABLED", "DELETE_DUPE", "DELETE_ALL"],
+  linkgrabber: ["DELETE_OFFLINE", "DELETE_DISABLED", "DELETE_DUPE", "DELETE_ALL"],
+};
