@@ -38,6 +38,7 @@
 .state-box p { margin: 0; }
 .state-title { font-weight: 600; color: var(--text); }
 .note { padding: 9px 12px; border: 1px solid var(--line); border-left: 4px solid var(--info); margin: 10px 0; }
+.stale-note { display: flex; gap: 12px; align-items: center; justify-content: space-between; border-left-color: var(--err); overflow-wrap: anywhere; }
 .form-error { color: var(--err); font-size: 13.5px; margin: 6px 0; }
 .form-msg { min-height: 24px; }
 .inline-form { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; max-width: 640px; }

@@ -104,7 +104,7 @@ export function SettingsView() {
     case "basicauth": body = <BasicAuthPage />; break;
     case "plugins": body = <PluginsPage />; break;
     case "extensions": body = <ExtensionsPage reloadNav={exts.reload} />; break;
-    case "extension": body = <ExtensionConfigPage iface={extensionInterface.value} name={installed.find((x) => x.configInterface === extensionInterface.value)?.name} />; break;
+    case "extension": body = <ExtensionConfigPage key={extensionInterface.value} iface={extensionInterface.value} name={installed.find((x) => x.configInterface === extensionInterface.value)?.name} />; break;
     case "expert": body = <ExpertPage />; break;
     case "system": body = <SystemPage />; break;
     case "account": body = <AccountPage />; break;

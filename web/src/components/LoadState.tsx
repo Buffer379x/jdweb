@@ -3,9 +3,21 @@ import { t } from "../i18n/index.ts";
 import { errorDetail, errorText } from "../store/errors.ts";
 import type { Loaded } from "../hooks/useLoad.ts";
 
-/** Loading, error with retry, or the content. Content is shown while a reload runs. */
+/** Loading, error with retry, or the content. Content is shown while a reload runs; when a reload failed it is marked as possibly out of date. */
 export function LoadState<T>({ load, children }: { load: Loaded<T>; children: (data: T) => ComponentChildren }) {
-  if (load.data !== undefined) return <>{children(load.data)}</>;
+  if (load.data !== undefined) {
+    return (
+      <>
+        {load.error ? (
+          <div class="note stale-note" role="alert">
+            <span dir="auto">{t("state.stale")} {errorText(load.error)}</span>
+            <button type="button" class="btn small" onClick={load.reload}>{t("common.retry")}</button>
+          </div>
+        ) : null}
+        {children(load.data)}
+      </>
+    );
+  }
   if (load.error) {
     return (
       <div class="state-box" role="alert">

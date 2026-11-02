@@ -4,6 +4,7 @@ export const deMore = {
   "common.done": "Fertig",
   "common.next": "Weiter",
   "toast.copyFailed": "Kopieren ging nicht. Markiere den Text von Hand.",
+  "state.stale": "Die Werte unten sind möglicherweise veraltet: sie ließen sich nicht aktualisieren.",
   "state.loadFailed": "Das konnte nicht geladen werden.",
   "variant.current": "aktuell",
 

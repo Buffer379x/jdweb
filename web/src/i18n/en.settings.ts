@@ -6,6 +6,7 @@ export const enMore: Record<keyof typeof deMore, string> = {
   "common.done": "Done",
   "common.next": "Next",
   "toast.copyFailed": "Copying did not work. Select the text by hand.",
+  "state.stale": "The values below may be out of date: they could not be refreshed.",
   "state.loadFailed": "This could not be loaded.",
   "variant.current": "current",
 
