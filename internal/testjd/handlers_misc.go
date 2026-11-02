@@ -557,6 +557,11 @@ func registerConfig() {
 		if err := a.scan(&iface, &storage, &key); err != nil {
 			return nil, err
 		}
+		if m, ok := s.meta[iface+"/"+key]; ok && m.Plugin != "" {
+			// A real JDownloader answers an empty body for a plugin setting: its
+			// plugin storage is not one config/get can name. plugins/query has the value.
+			return nil, nil
+		}
 		if v, ok := s.config[iface+"/"+key]; ok {
 			return v, nil
 		}

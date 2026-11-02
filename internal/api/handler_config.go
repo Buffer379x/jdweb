@@ -153,10 +153,23 @@ func (b settingRef) check() error {
 // handleConfigReveal is POST /config/reveal: the real value of a secret setting.
 // It reads nothing else, so it cannot be used to read the whole config unmasked.
 func (s *Server) handleConfigReveal(w http.ResponseWriter, r *http.Request) {
+	s.reveal(w, r, false)
+}
+
+// handlePluginReveal is POST /plugins/reveal: the same for a plugin setting.
+// config/get cannot name a plugin storage, so the value comes from plugins/query.
+func (s *Server) handlePluginReveal(w http.ResponseWriter, r *http.Request) {
+	s.reveal(w, r, true)
+}
+
+func (s *Server) reveal(w http.ResponseWriter, r *http.Request, plugin bool) {
 	var b settingRef
 	err := decode(r, &b, false)
 	if err == nil {
 		err = b.check()
+	}
+	if err == nil && plugin && b.Storage == "" {
+		err = badRequest("storage (the plugin name) is required.")
 	}
 	if err == nil && !secretKey.MatchString(b.Key) {
 		err = badRequest("This setting is not a secret. Its value is not masked.")
@@ -165,7 +178,11 @@ func (s *Server) handleConfigReveal(w http.ResponseWriter, r *http.Request) {
 	if err == nil {
 		var c *jd.Client
 		if c, err = s.client(); err == nil {
-			raw, err = c.ConfigGet(r.Context(), b.Interface, b.Storage, b.Key)
+			if plugin {
+				raw, err = c.PluginValue(r.Context(), b.Interface, b.Storage, b.Key)
+			} else {
+				raw, err = c.ConfigGet(r.Context(), b.Interface, b.Storage, b.Key)
+			}
 		}
 	}
 	if err != nil {
@@ -176,7 +193,7 @@ func (s *Server) handleConfigReveal(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, badRequest("This setting is a switch or a number and not masked."))
 		return
 	}
-	s.log.Info("secret setting revealed", "interface", b.Interface, "key", b.Key) // never the value
+	s.log.Info("secret setting revealed", "interface", b.Interface, "plugin", plugin, "key", b.Key) // never the value
 	s.writeJSON(w, r, http.StatusOK, map[string]any{"value": nullIfEmpty(raw)})
 }
 

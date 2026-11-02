@@ -94,6 +94,7 @@ func (s *Server) buildRoutes() []Route {
 	add("GET", "/plugins/settings", s.handlePluginSettings)
 	add("PUT", "/plugins", s.handlePluginSet)
 	add("POST", "/plugins/reset", s.handlePluginReset)
+	add("POST", "/plugins/reveal", s.handlePluginReveal)
 	add("GET", "/extensions", s.handleExtensions)
 	add("POST", "/extensions/{action}", s.handleExtensionAction)
 

@@ -1,6 +1,9 @@
 package jd
 
-import "context"
+import (
+	"context"
+	"encoding/json"
+)
 
 const (
 	pathPluginList  = "/plugins/list"
@@ -40,4 +43,21 @@ func (c *Client) PluginSet(ctx context.Context, iface, displayName, key string, 
 // PluginReset sets one plugin setting back to its default.
 func (c *Client) PluginReset(ctx context.Context, iface, displayName, key string) error {
 	return boolResult(ctx, c, pathPluginReset, iface, displayName, key)
+}
+
+// PluginValue returns the value of one plugin setting as JSON, or nil if the
+// plugin has no such key. config/get cannot do this: it does not know the
+// storage of a plugin and answers an empty body. plugins/query with the
+// config interface does return the stored value.
+func (c *Client) PluginValue(ctx context.Context, iface, displayName, key string) (json.RawMessage, error) {
+	entries, err := c.PluginSettings(ctx, ConfigQuery{ConfigInterface: iface, Values: true})
+	if err != nil {
+		return nil, err
+	}
+	for _, e := range entries {
+		if e.Storage == displayName && e.Key == key {
+			return e.Value, nil
+		}
+	}
+	return nil, nil
 }

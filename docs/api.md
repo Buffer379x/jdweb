@@ -219,6 +219,7 @@ A captcha that was solved or timed out meanwhile is `404 jd_error` with a messag
 - `GET /plugins?q=` returns `{plugins:[{displayName,className,pattern,version}]}`, filtered by `q` in name or class name (case-insensitive).
 - `GET /plugins/settings?q=&interface=` returns `{entries:[...]}` like `/config` for the settings of plugins, with the same masking. `storage` is the display name of the plugin.
 - `PUT /plugins` with `{interface,storage,key,value}` and `POST /plugins/reset` with `{interface,storage,key}`: 204. `storage` (the plugin) is required, masks are refused as in `PUT /config`.
+- `POST /plugins/reveal` with `{interface,storage,key}` (`storage` is the display name of the plugin and required) returns `{value}` with the real value, like `POST /config/reveal` and with the same rules and logging. `/config/reveal` does not work for plugin settings: JDownloader's `config/get` does not know the storage of a plugin and answers an empty body, so the value comes from `plugins/query`.
 - `GET /extensions` returns a list of `{id,name,description,enabled,installed,iconKey,configInterface}`.
 - `POST /extensions/{install,enable,disable}` with `{id}`: 204, or `409 conflict` when JDownloader refuses.
 

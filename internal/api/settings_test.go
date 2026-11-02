@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/Buffer379x/jdweb/internal/testjd"
 )
 
 const (
@@ -285,5 +287,43 @@ func TestExtractionRoutes(t *testing.T) {
 	r = e.post("/api/v1/extraction/cancel", map[string]any{"id": "77"})
 	if r.status != 404 || r.errCode() != "jd_error" || !strings.Contains(r.errMessage(), "gone") {
 		t.Errorf("cancel of a finished extraction: %d %s", r.status, r.body)
+	}
+}
+
+// A plugin secret is revealed through /plugins/reveal. The fake answers config/get
+// for a plugin setting with an empty body, as a real JDownloader does, so the
+// reveal of /config would show an empty field.
+func TestPluginSecretReveal(t *testing.T) {
+	e := newEnv(t)
+	const iface = "jd.plugins.hoster.Foo"
+	e.jd.SetConfig(iface, "ApiKey", "plugin-secret")
+	e.jd.SetConfig(iface, "Other", "other-secret")
+	e.jd.SetConfigMeta(iface, "ApiKey", testjd.ConfigMeta{Plugin: "foo.com", AbstractType: "STRING"})
+	e.jd.SetConfigMeta(iface, "Other", testjd.ConfigMeta{Plugin: "bar.com", AbstractType: "STRING"})
+
+	r := e.post("/api/v1/plugins/reveal", map[string]any{"interface": iface, "storage": "foo.com", "key": "ApiKey"})
+	e.expect(r, 200)
+	if !strings.Contains(string(r.body), `"plugin-secret"`) {
+		t.Fatalf("reveal = %s", r.body)
+	}
+	// The plugin is part of the address: another plugin's storage does not find it.
+	r = e.post("/api/v1/plugins/reveal", map[string]any{"interface": iface, "storage": "bar.com", "key": "ApiKey"})
+	e.expect(r, 200)
+	if strings.Contains(string(r.body), "secret") {
+		t.Fatalf("reveal with the wrong plugin = %s", r.body)
+	}
+	// The config route cannot see it, which is why the plugin route exists.
+	r = e.post("/api/v1/config/reveal", map[string]any{"interface": iface, "storage": "foo.com", "key": "ApiKey"})
+	e.expect(r, 200)
+	if strings.Contains(string(r.body), "plugin-secret") {
+		t.Fatalf("config/get unexpectedly knows plugin storage: %s", r.body)
+	}
+	e.expectErr(e.post("/api/v1/plugins/reveal", map[string]any{"interface": iface, "key": "ApiKey"}), 400, "bad_request")
+	e.expectErr(e.post("/api/v1/plugins/reveal", map[string]any{"interface": iface, "storage": "foo.com", "key": "Plain"}), 400, "bad_request")
+	if strings.Contains(e.logs.String(), "plugin-secret") {
+		t.Error("the log holds the secret")
+	}
+	if !strings.Contains(e.logs.String(), "secret setting revealed") {
+		t.Error("a reveal leaves no trace in the log")
 	}
 }
