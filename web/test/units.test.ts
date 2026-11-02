@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { MAX_BYTES_PER_SECOND, parseDecimal, splitBytesPerSecond, toBytesPerSecond } from "../src/lib/units.ts";
+import { MAX_BYTES_PER_SECOND, describeRate, parseDecimal, splitBytesPerSecond, toBytesPerSecond } from "../src/lib/units.ts";
 
 test("parseDecimal takes comma and point and nothing else", () => {
   assert.equal(parseDecimal("1,5"), 1.5);
@@ -31,11 +31,13 @@ test("whole megabytes are shown as MB, the rest as KB", () => {
   assert.deepEqual(splitBytesPerSecond(1048576), { value: 1, unit: "MB" });
   assert.deepEqual(splitBytesPerSecond(5 * 1048576), { value: 5, unit: "MB" });
   assert.deepEqual(splitBytesPerSecond(1572864), { value: 1536, unit: "KB" });
-  assert.deepEqual(splitBytesPerSecond(1000), { value: 0.98, unit: "KB" });
+  assert.deepEqual(splitBytesPerSecond(1000), { value: 0.9765625, unit: "KB" });
+  assert.equal(describeRate(1000), "0.98 KB/s");
+  assert.equal(describeRate(5 * 1048576), "5 MB/s");
 });
 
 test("what is shown converts back", () => {
-  for (const b of [51200, 1048576, 1572864, 3 * 1048576, 777 * 1024]) {
+  for (const b of [51200, 1048576, 1572864, 3 * 1048576, 777 * 1024, 1000, 1, 1500, 123457, 99999999]) {
     const { value, unit } = splitBytesPerSecond(b);
     assert.equal(toBytesPerSecond(value, unit), b);
   }

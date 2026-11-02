@@ -1,11 +1,12 @@
 // The settings people change often: folder, simultaneous downloads, speed limit, switches, archive passwords.
 
-import { useMemo, useState } from "preact/hooks";
+import { useEffect, useMemo, useState } from "preact/hooks";
 import { post } from "../../api/client.ts";
 import { LoadState } from "../../components/LoadState.tsx";
 import { Switch } from "../../components/Switch.tsx";
 import { useGet } from "../../hooks/useLoad.ts";
-import { parseDecimal, splitBytesPerSecond, toBytesPerSecond, type SpeedUnit } from "../../lib/units.ts";
+import { describeRate, type SpeedUnit } from "../../lib/units.ts";
+import { edit, followStatus, formBytes, initialForm, isDirty, switchRequest } from "../../lib/speedlimit.ts";
 import type { ConfigEntry } from "../../lib/editors.ts";
 import { t, type Key } from "../../i18n/index.ts";
 import { live, pushToast, pushToastForError, status } from "../../store/app.ts";
@@ -57,41 +58,47 @@ function GeneralBody({ entries }: { entries: ConfigEntry[] }) {
 
 function SpeedLimit() {
   const tg = status.value?.toggles;
-  const initial = splitBytesPerSecond(tg?.limitBytes && tg.limitBytes > 0 ? tg.limitBytes : 1024 * 1024);
-  const [value, setValue] = useState(String(initial.value));
-  const [unit, setUnit] = useState<SpeedUnit>(initial.unit);
+  const [form, setForm] = useState(() => initialForm(tg?.limitBytes));
   const [busy, setBusy] = useState(false);
-  const n = parseDecimal(value);
-  const bytes = n === null ? null : toBytesPerSecond(n, unit);
+  // JDownloader's value changed (another browser): an untouched form follows it.
+  useEffect(() => setForm((f) => followStatus(f, tg?.limitBytes)), [tg?.limitBytes]);
+  const bytes = formBytes(form);
   const on = !!tg?.limit;
-  const current = tg && tg.limitBytes > 0 ? splitBytesPerSecond(tg.limitBytes) : null;
-  const dirty = bytes !== null && bytes !== tg?.limitBytes;
+  const dirty = isDirty(form, tg?.limitBytes);
   const apply = async (enabled: boolean, b: number) => {
     setBusy(true);
     const ok = await setSpeedLimit(enabled, b);
     setBusy(false);
-    if (ok) pushToast("info", t("gen.limitSaved"));
+    if (ok) {
+      pushToast("info", t("gen.limitSaved"));
+      if (b > 0) setForm((f) => ({ ...f, edited: false })); // saved: the form is JDownloader's value again
+    }
+  };
+  const flip = (v: boolean) => {
+    const req = switchRequest(v, form, tg?.limitBytes);
+    if (req.ok) void apply(req.enabled, req.bytesPerSecond);
+    else pushToast("error", t("gen.limitInvalid"));
   };
   return (
     <div class="speed-limit">
-      <Switch checked={on} disabled={!live.value || busy} onChange={(v) => void apply(v, 0)} hint={on && current ? t("gen.limitNow", { value: `${current.value} ${current.unit}/s` }) : t("gen.limitOffHint")}>
+      <Switch checked={on} disabled={!live.value || busy} onChange={flip} hint={on && tg && tg.limitBytes > 0 ? t("gen.limitNow", { value: describeRate(tg.limitBytes) }) : t("gen.limitOffHint")}>
         {t("gen.limit")}
       </Switch>
       <div class="speed-edit">
         <label class="field-inline">
           <span class="field-label">{t("gen.limitValue")}</span>
-          <input class={`input mono narrow`} inputMode="decimal" value={value} aria-invalid={n !== null && bytes === null ? "true" : value !== "" && n === null ? "true" : undefined} autocomplete="off" disabled={!live.value} onInput={(e) => setValue(e.currentTarget.value)} />
+          <input class={`input mono narrow`} inputMode="decimal" value={form.value} aria-invalid={form.value !== "" && bytes === null ? "true" : undefined} autocomplete="off" disabled={!live.value} onInput={(e) => { const v = e.currentTarget.value; setForm((f) => edit(f, { value: v })); }} />
         </label>
         <label class="field-inline">
           <span class="field-label">{t("gen.limitUnit")}</span>
-          <select class="input narrow" value={unit} disabled={!live.value} onChange={(e) => setUnit(e.currentTarget.value as SpeedUnit)}>
+          <select class="input narrow" value={form.unit} disabled={!live.value} onChange={(e) => { const u = e.currentTarget.value as SpeedUnit; setForm((f) => edit(f, { unit: u })); }}>
             <option value="KB">KB/s</option>
             <option value="MB">MB/s</option>
           </select>
         </label>
-        <button type="button" class="btn pri" disabled={!live.value || busy || bytes === null || !dirty} onClick={() => void apply(on, bytes!)}>{t("cfg.save")}</button>
+        <button type="button" class="btn pri" disabled={!live.value || busy || !dirty} onClick={() => void apply(on, bytes!)}>{t("cfg.save")}</button>
       </div>
-      {value !== "" && bytes === null ? <p class="field-hint bad" role="alert">{t("gen.limitInvalid")}</p> : null}
+      {form.value !== "" && bytes === null ? <p class="field-hint bad" role="alert">{t("gen.limitInvalid")}</p> : null}
     </div>
   );
 }

@@ -21,8 +21,18 @@ export function toBytesPerSecond(value: number, unit: SpeedUnit): number | null 
   return bytes >= 1 && bytes <= MAX_BYTES_PER_SECOND ? bytes : null;
 }
 
-/** The unit a number of bytes per second is shown in: whole megabytes as MB, everything else as KB. */
+/**
+ * The unit a number of bytes per second is shown in: whole megabytes as MB, everything else as KB. The value
+ * is exact (a KB is a power of two, so the division loses nothing): typing it back gives the same bytes, and
+ * a form that starts from it is not changed by the round trip.
+ */
 export function splitBytesPerSecond(bytes: number): { value: number; unit: SpeedUnit } {
   if (bytes >= MB && bytes % MB === 0) return { value: bytes / MB, unit: "MB" };
-  return { value: Math.round((bytes / KB) * 100) / 100, unit: "KB" };
+  return { value: bytes / KB, unit: "KB" };
+}
+
+/** A speed for reading, rounded to two decimals: "0.98 KB/s". */
+export function describeRate(bytes: number): string {
+  const { value, unit } = splitBytesPerSecond(bytes);
+  return `${Math.round(value * 100) / 100} ${unit}/s`;
 }
