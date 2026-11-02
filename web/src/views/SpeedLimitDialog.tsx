@@ -28,8 +28,8 @@ function SpeedLimitDialog({ onClose }: { onClose: () => void }) {
     <Dialog
       title={t("gen.limit")}
       onClose={onClose}
-      onDismiss={busy ? () => {} : onClose}
-      footer={<><button type="button" class="btn" onClick={onClose}>{t("common.cancel")}</button><button type="submit" form={id} class="btn pri" disabled={bytes === null || busy}>{t("gen.limitOn")}</button></>}
+      locked={busy}
+      footer={<><button type="button" class="btn" disabled={busy} onClick={onClose}>{t("common.cancel")}</button><button type="submit" form={id} class="btn pri" disabled={bytes === null || busy}>{t("gen.limitOn")}</button></>}
     >
       <form id={id} onSubmit={submit}>
         <p class="confirm-more">{t("gen.limitText")}</p>

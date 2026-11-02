@@ -311,7 +311,7 @@ export const enMore: Record<keyof typeof deMore, string> = {
   "conn.failed": "Saved, but JDownloader does not answer there.",
   "conn.offlineNow": "JDownloader does not answer right now.",
   "first.title": "Please read: safety of the connection",
-  "first.intro": "JDWeb found the following during setup.",
+  "first.intro": "JDWeb found the following when it checked the connection to JDownloader.",
   "first.ackNote": "With “Confirm” JDWeb remembers that you know the notes. They stay under Settings › Diagnostics.",
   "first.ack": "Confirm",
   "first.later": "Later",

@@ -141,10 +141,11 @@ export function AddLinksDialog({ onClose }: { onClose: () => void }) {
       sticky
       onClose={onClose}
       onDismiss={tryClose}
+      locked={busy}
       footer={
         <>
           <span class="foot-hint">{t("add.submitHint")}</span>
-          <button type="button" class="btn" onClick={tryClose}>{t("common.cancel")}</button>
+          <button type="button" class="btn" disabled={busy} onClick={tryClose}>{t("common.cancel")}</button>
           <button type="submit" form={formId} class="btn pri" disabled={!can}>{t("add.submit")}</button>
         </>
       }

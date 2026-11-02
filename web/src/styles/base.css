@@ -57,6 +57,7 @@ kbd {
   border: 0; background: none; color: var(--muted); cursor: pointer; border-radius: var(--radius);
 }
 .icon-btn:hover { color: var(--text); }
+.icon-btn.locked, .icon-btn.locked:hover { opacity: 0.4; cursor: not-allowed; color: var(--muted); }
 .link-btn { border: 0; background: none; color: var(--accent); text-decoration: underline; cursor: pointer; padding: 0 0 0 8px; font: inherit; }
 
 .input {

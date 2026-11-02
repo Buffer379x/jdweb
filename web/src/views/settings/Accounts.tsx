@@ -186,10 +186,10 @@ function AccountDialog({ account, onClose, onDone }: { account?: Account; onClos
     <Dialog
       title={account ? t("acc.edit") : t("acc.add")}
       onClose={onClose}
-      onDismiss={busy ? () => {} : onClose}
+      locked={busy}
       footer={
         <>
-          <button type="button" class="btn" onClick={onClose}>{t("common.cancel")}</button>
+          <button type="button" class="btn" disabled={busy} onClick={onClose}>{t("common.cancel")}</button>
           <button type="submit" form={formId} class="btn pri" disabled={!can}>{t("common.apply")}</button>
         </>
       }
@@ -326,10 +326,10 @@ function BasicAuthDialog({ entry, onClose, onDone }: { entry?: BasicAuth; onClos
     <Dialog
       title={entry ? t("ba.edit") : t("ba.add")}
       onClose={onClose}
-      onDismiss={busy ? () => {} : onClose}
+      locked={busy}
       footer={
         <>
-          <button type="button" class="btn" onClick={onClose}>{t("common.cancel")}</button>
+          <button type="button" class="btn" disabled={busy} onClick={onClose}>{t("common.cancel")}</button>
           <button type="submit" form={formId} class="btn pri" disabled={!can}>{t("common.apply")}</button>
         </>
       }

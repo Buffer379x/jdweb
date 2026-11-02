@@ -18,11 +18,14 @@ interface DialogProps {
   onDismiss?: () => void;
   /** An alert dialog interrupts: it is for questions that must be answered. */
   alert?: boolean;
+  /** Nothing closes the dialog now (a request is running, codes are not saved yet): Escape, the X and a click beside do nothing and the X says so. */
+  locked?: boolean;
 }
 
 /** A modal dialog: focus moves in, Tab stays inside, Escape closes, focus returns where it was. */
-export function Dialog({ title, onClose, children, footer, wide, sticky, onDismiss, alert }: DialogProps) {
-  const dismiss = onDismiss ?? onClose;
+export function Dialog({ title, onClose, children, footer, wide, sticky, onDismiss, alert, locked }: DialogProps) {
+  const base = onDismiss ?? onClose;
+  const dismiss = locked ? () => {} : base;
   const dismissRef = useRef(dismiss);
   dismissRef.current = dismiss;
   const bodyId = useId();
@@ -82,7 +85,7 @@ export function Dialog({ title, onClose, children, footer, wide, sticky, onDismi
       <div ref={ref} class={`dialog${wide ? " wide" : ""}`} role={alert ? "alertdialog" : "dialog"} aria-modal="true" aria-labelledby={titleId} aria-describedby={alert ? bodyId : undefined} onKeyDown={onKey}>
         <header class="dialog-head">
           <h2 id={titleId}>{title}</h2>
-          <button type="button" class="icon-btn" onClick={dismiss} aria-label={t("common.close")}>
+          <button type="button" class={`icon-btn${locked ? " locked" : ""}`} onClick={dismiss} aria-label={t("common.close")} aria-disabled={locked ? "true" : undefined}>
             <Icon name="x" />
           </button>
         </header>
@@ -119,11 +122,11 @@ export function ConfirmDialog({ title, lines, confirmLabel, danger, onConfirm, o
     <Dialog
       title={title}
       onClose={onClose}
-      onDismiss={busy ? () => {} : onClose}
+      locked={busy}
       alert
       footer={
         <>
-          <button type="button" class="btn" data-autofocus onClick={onClose}>
+          <button type="button" class="btn" data-autofocus disabled={busy} onClick={onClose}>
             {t("common.cancel")}
           </button>
           <button type="button" class={`btn ${danger ? "danger" : "pri"}`} disabled={busy} onClick={run}>
@@ -182,10 +185,10 @@ export function PromptDialog({ title, intro, fields, submitLabel, onSubmit, onCl
     <Dialog
       title={title}
       onClose={onClose}
-      onDismiss={busy ? () => {} : onClose}
+      locked={busy}
       footer={
         <>
-          <button type="button" class="btn" onClick={onClose}>
+          <button type="button" class="btn" disabled={busy} onClick={onClose}>
             {t("common.cancel")}
           </button>
           <button type="submit" form={id} class="btn pri" disabled={!ok || busy}>

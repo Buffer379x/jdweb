@@ -19,12 +19,11 @@ function FirstRunDialog({ report, onClose }: { report: Report; onClose: () => vo
       wide
       footer={
         <>
-          <button type="button" class="btn" onClick={onClose}>{t("first.later")}</button>
+          <button type="button" class="btn" data-autofocus onClick={onClose}>{t("first.later")}</button>
           <button type="button" class="btn" onClick={() => { onClose(); navigateSettings("diagnostics"); }}>{t("first.details")}</button>
           <button
             type="button"
             class="btn pri"
-            data-autofocus
             onClick={async () => {
               if (await acknowledge()) {
                 pushToast("info", t("diag.ackDone"));
@@ -58,8 +57,4 @@ export function useFirstRun(): void {
         asked = false; // try again with the next status
       });
   }, [known]);
-}
-
-export function resetFirstRun(): void {
-  asked = false;
 }

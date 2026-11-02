@@ -317,7 +317,7 @@ export const deMore = {
   "conn.failed": "Gespeichert, aber JDownloader antwortet dort nicht.",
   "conn.offlineNow": "JDownloader antwortet gerade nicht.",
   "first.title": "Bitte lesen: Sicherheit der Verbindung",
-  "first.intro": "JDWeb hat bei der Einrichtung Folgendes gefunden.",
+  "first.intro": "JDWeb hat bei der Prüfung der Verbindung zu JDownloader Folgendes gefunden.",
   "first.ackNote": "Mit „Bestätigen“ merkt sich JDWeb, dass du die Hinweise kennst. Sie stehen weiter unter Einstellungen › Diagnose.",
   "first.ack": "Bestätigen",
   "first.later": "Später",

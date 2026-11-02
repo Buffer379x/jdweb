@@ -190,19 +190,19 @@ function TotpEnrollDialog({ onClose }: { onClose: () => void }) {
   const qr = enroll ? qrDataUrl(enroll.qrSvg) : null;
   const text = codes.join("\n");
   // The codes are shown once: closing before they are saved is not an accident that Escape may cause.
-  const dismiss = step === "codes" && !saved ? () => {} : onClose;
+  const locked = step === "codes" && !saved || busy;
 
   return (
     <Dialog
       title={t("account.totpEnable")}
       onClose={onClose}
-      onDismiss={dismiss}
+      locked={locked}
       sticky
       footer={
         step === "password" ? (
-          <><button type="button" class="btn" onClick={onClose}>{t("common.cancel")}</button><button type="submit" form={id} class="btn pri" disabled={!pw || busy}>{t("common.next")}</button></>
+          <><button type="button" class="btn" disabled={busy} onClick={onClose}>{t("common.cancel")}</button><button type="submit" form={id} class="btn pri" disabled={!pw || busy}>{t("common.next")}</button></>
         ) : step === "code" ? (
-          <><button type="button" class="btn" onClick={onClose}>{t("common.cancel")}</button><button type="submit" form={id} class="btn pri" disabled={!code.trim() || busy}>{t("account.totpConfirm")}</button></>
+          <><button type="button" class="btn" disabled={busy} onClick={onClose}>{t("common.cancel")}</button><button type="submit" form={id} class="btn pri" disabled={!code.trim() || busy}>{t("account.totpConfirm")}</button></>
         ) : (
           <button type="button" class="btn pri" disabled={!saved} onClick={onClose}>{t("common.done")}</button>
         )
