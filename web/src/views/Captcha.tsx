@@ -1,7 +1,8 @@
 // Waiting captchas: image captchas are solved here, interactive ones are explained and can be skipped.
 
 import { useCallback, useEffect, useRef, useState } from "preact/hooks";
-import { get, isApiError, post } from "../api/client.ts";
+import { get, post } from "../api/client.ts";
+import { isGone } from "../lib/gone.ts";
 import { ConfirmDialog, Dialog } from "../components/Dialog.tsx";
 import { Lamp } from "../components/Lamp.tsx";
 import { useNow } from "../hooks/useNow.ts";
@@ -129,7 +130,7 @@ function CaptchaView({ item, onDone, onGone }: { item: Item; onDone: () => void;
       .then((d) => !cancelled && setDetail(d))
       .catch((e) => {
         if (cancelled) return;
-        if (isApiError(e) && (e.code === "jd_error" || e.code === "not_found")) {
+        if (isGone(e)) {
           setNote(t("cap.gone"));
           setTimeout(onGone, 800);
         } else setError(e);
@@ -155,7 +156,7 @@ function CaptchaView({ item, onDone, onGone }: { item: Item; onDone: () => void;
       await post(path, body);
       onDone();
     } catch (e) {
-      if (isApiError(e) && (e.code === "jd_error" || e.code === "not_found")) {
+      if (isGone(e)) {
         setNote(t("cap.gone"));
         setTimeout(onGone, 800);
       } else {

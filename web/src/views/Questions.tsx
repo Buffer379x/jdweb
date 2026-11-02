@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "preact/hooks";
 import { get, isApiError, post } from "../api/client.ts";
+import { isGone } from "../lib/gone.ts";
 import { Dialog } from "../components/Dialog.tsx";
 import { Lamp } from "../components/Lamp.tsx";
 import { answerFields, buildAnswer, dialogKind, hasCloseReason, splitProperties } from "../lib/questions.ts";
@@ -108,10 +109,13 @@ function QuestionView({ item, canAnswer, notice, onAnswered, onConflict, onGone 
   const [info, setInfo] = useState<QuestionInfo>(item);
   const [values, setValues] = useState<Record<string, string | boolean>>({});
   const [busy, setBusy] = useState(false);
+  const [loadError, setLoadError] = useState<unknown>(null);
   useEffect(() => {
     let off = false;
     get<QuestionInfo>(`/dialogs/${item.id}`).then((d) => !off && setInfo(d)).catch((e) => {
-      if (!off && isApiError(e) && (e.code === "jd_error" || e.code === "not_found")) onGone();
+      if (off) return;
+      if (isGone(e)) onGone();
+      else setLoadError(e); // a real failure is shown, the list data stays
     });
     return () => { off = true; };
   }, [item.id]);
@@ -127,7 +131,7 @@ function QuestionView({ item, canAnswer, notice, onAnswered, onConflict, onGone 
       onAnswered();
     } catch (e) {
       if (isApiError(e) && e.code === "conflict") onConflict();
-      else if (isApiError(e) && (e.code === "jd_error" || e.code === "not_found")) onGone();
+      else if (isGone(e)) onGone();
       else pushToastForError(e);
       setBusy(false);
     }
@@ -136,6 +140,7 @@ function QuestionView({ item, canAnswer, notice, onAnswered, onConflict, onGone 
   return (
     <div class="cap-view">
       <p class="muted small mono" dir="ltr" title={info.type}>{dialogKind(info.type)}</p>
+      {loadError ? <p class="form-error" role="alert">{errorText(loadError)}</p> : null}
       {notice ? <p class="note" role="status">{notice}</p> : null}
       {!canAnswer ? <p class="note" role="status">{t("dlg.notFirst")}</p> : null}
       {p.title ? <h3 class="q-title" dir="auto">{p.title}</h3> : null}
