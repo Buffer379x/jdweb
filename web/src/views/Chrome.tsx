@@ -20,6 +20,10 @@ import { openCleanup } from "./dialogs.tsx";
 import { openDetailsDialog } from "./Details.tsx";
 import { prefs, updatePrefs } from "../store/app.ts";
 import { wide } from "../store/viewport.ts";
+import { setToggle, reconnectNow, setSpeedLimit } from "../store/jd.ts";
+import { openSpeedLimit } from "./SpeedLimitDialog.tsx";
+import { ExtractionIndicator } from "./Extraction.tsx";
+import { jdRestarting, navigateSettings } from "../store/app.ts";
 
 async function control(action: "start" | "stop" | "pause" | "resume"): Promise<void> {
   try {
@@ -102,6 +106,9 @@ export function Waiting() {
   if (!s) return null;
   return (
     <>
+      <span class="visually-hidden" role="status" aria-live="polite">
+        {s.captchas > 0 ? plural("cap.waiting", s.captchas) : ""} {s.dialogs > 0 ? plural("dlg.waiting", s.dialogs) : ""}
+      </span>
       {s.captchas > 0 ? (
         <button type="button" class="cap" aria-label={plural("cap.waiting", s.captchas)} onClick={() => (captchaDialogOpen.value = true)}>
           <Lamp tone="accent" pulse />
@@ -124,9 +131,22 @@ const userMenu = signal<DOMRect | null>(null);
 
 export function UserMenu() {
   const btn = useRef<HTMLButtonElement>(null);
+  const tg = status.value?.toggles;
+  const on = live.value;
   const items: MenuItem[] = [
+    { id: "premium", label: t("toggle.premium"), checked: !!tg?.premium, disabled: !on, onSelect: () => void setToggle("premium", !tg?.premium) },
+    { id: "clipboard", label: t("toggle.clipboard"), checked: !!tg?.clipboard, disabled: !on, onSelect: () => void setToggle("clipboard", !tg?.clipboard) },
+    { id: "reconnect", label: t("toggle.reconnect"), checked: !!tg?.reconnect, disabled: !on, onSelect: () => void setToggle("reconnect", !tg?.reconnect) },
+    { id: "stopAfter", label: t("toggle.stopAfter"), checked: !!tg?.stopAfter, disabled: !on, onSelect: () => void setToggle("stop-after", !tg?.stopAfter) },
     {
-      id: "theme", label: t("menu.theme"),
+      id: "limit", label: t("toggle.limit"), checked: !!tg?.limit, disabled: !on,
+      onSelect: () => (tg?.limit ? void setSpeedLimit(false, 0) : tg && tg.limitBytes > 0 ? void setSpeedLimit(true, 0) : openSpeedLimit()),
+    },
+    { id: "limitEdit", label: t("toggle.limitEdit"), disabled: !on, onSelect: openSpeedLimit },
+    { id: "reconnectNow", label: t("toggle.reconnectNow"), disabled: !on, onSelect: () => void reconnectNow() },
+    { id: "settings", label: t("tab.settings"), hint: "3", separatorBefore: true, onSelect: () => navigate("settings") },
+    {
+      id: "theme", separatorBefore: true, label: t("menu.theme"),
       children: (["system", "dark", "light"] as const).map((c) => ({ id: `theme-${c}`, label: t(`theme.${c}` as Key), checked: themeChoice.value === c, onSelect: () => chooseTheme(c) })),
     },
     {
@@ -174,12 +194,23 @@ export function Banner() {
     );
   }
   const mis = s.connection === "misconfigured";
+  const restarting = jdRestarting.value && !mis;
   return (
-    <div class="banner err" role="alert">
-      <Lamp tone="err" />
+    <div class={`banner ${restarting ? "info" : "err"}`} role={restarting ? "status" : "alert"}>
+      <Lamp tone={restarting ? "info" : "err"} />
       <div>
-        <b>{mis ? t("banner.misconfigured") : t("banner.offline")}</b>{" "}
-        <span dir="auto">{s.connectionDetail || (mis ? t("banner.misconfiguredHint") : t("banner.offlineHint"))}</span>
+        <b>{restarting ? t("banner.restarting") : mis ? t("banner.misconfigured") : t("banner.offline")}</b>{" "}
+        {restarting ? (
+          <span>{t("banner.restartingHint")}</span>
+        ) : (
+          <>
+            <span dir="auto">{s.connectionDetail || (mis ? t("banner.misconfiguredHint") : t("banner.offlineHint"))}</span>
+            {mis ? <span class="banner-more"> {t("banner.settingsHint")}</span> : null}{" "}
+            {mis || s.connection === "offline" ? (
+              <a class="banner-link" href="/settings/diagnostics" onClick={(e) => { e.preventDefault(); navigateSettings("diagnostics"); }}>{t("banner.toDiagnostics")}</a>
+            ) : null}
+          </>
+        )}
       </div>
     </div>
   );
@@ -291,6 +322,7 @@ export function Footbar() {
             {s.linkgrabber.crawling ? t("foot.crawling") : t("foot.crawlIdle")}
           </span>
         ) : null}
+        {s ? <ExtractionIndicator /> : null}
         <span class="st">
           <Lamp tone={tone} />
           {t(`conn.${conn}` as Key)}

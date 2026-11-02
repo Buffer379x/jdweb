@@ -17,15 +17,53 @@ export function routeFromPath(path: string): Route {
 
 export const route = signal<Route>(routeFromPath(location.pathname));
 
-export function navigate(r: Route): void {
-  if (route.value === r) return;
-  history.pushState(null, "", `/${r}`);
-  route.value = r;
+// ---- settings pages ------------------------------------------------------
+// The settings are a routed sub-layout: /settings (the list on a phone, General on a desktop),
+// /settings/<page>, and /settings/extension?interface=<config interface> for the page of an extension.
+// The interface is a query because a name with dots would look like a file to the web server.
+
+export const SETTINGS_PAGES = [
+  "general", "accounts", "basicauth", "plugins", "extensions", "extension", "expert", "system", "account", "diagnostics",
+] as const;
+export type SettingsPage = (typeof SETTINGS_PAGES)[number];
+
+/** The page named by a path, or "" for /settings itself. */
+export function settingsPageFromPath(path: string): SettingsPage | "" {
+  const parts = path.split("/").filter(Boolean);
+  if (parts[0] !== "settings") return "";
+  return (SETTINGS_PAGES as readonly string[]).includes(parts[1] ?? "") ? (parts[1] as SettingsPage) : "";
 }
 
-window.addEventListener("popstate", () => {
+export function extensionFromSearch(search: string): string {
+  return new URLSearchParams(search).get("interface") ?? "";
+}
+
+export const settingsPage = signal<SettingsPage | "">(settingsPageFromPath(location.pathname));
+/** The config interface of the extension whose page is open. */
+export const extensionInterface = signal<string>(extensionFromSearch(location.search));
+
+function syncFromLocation(): void {
   route.value = routeFromPath(location.pathname);
-});
+  settingsPage.value = settingsPageFromPath(location.pathname);
+  extensionInterface.value = extensionFromSearch(location.search);
+}
+
+export function navigate(r: Route): void {
+  // The tab "Settings" always leads to the start of the settings.
+  if (route.value === r && !(r === "settings" && settingsPage.value !== "")) return;
+  history.pushState(null, "", `/${r}`);
+  syncFromLocation();
+}
+
+export function navigateSettings(page: SettingsPage | "", iface?: string): void {
+  const path = page === "" ? "/settings" : `/settings/${page}`;
+  const url = page === "extension" && iface ? `${path}?interface=${encodeURIComponent(iface)}` : path;
+  if (location.pathname + location.search === url) return;
+  history.pushState(null, "", url);
+  syncFromLocation();
+}
+
+window.addEventListener("popstate", syncFromLocation);
 
 // ---- session -----------------------------------------------------------
 
@@ -233,8 +271,12 @@ export function chooseLang(c: LangChoice): void {
 
 // ---- small UI flags --------------------------------------------------------
 
-/** Task 7 opens the captcha dialog when this is true. */
+/** The captcha dialog is open. */
 export const captchaDialogOpen = signal(false);
-/** Task 7 opens the questions of JDownloader when this is true. */
+/** The questions of JDownloader are open. */
 export const questionDialogOpen = signal(false);
+/** The panel with the extraction jobs is open. */
+export const extractionOpen = signal(false);
+/** JDownloader was asked to restart or exit; the banner says that it comes back by itself. */
+export const jdRestarting = signal(false);
 export const helpOpen = signal(false);

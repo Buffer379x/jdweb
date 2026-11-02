@@ -1,6 +1,7 @@
 import type { Key } from "./de.ts";
+import { enMore } from "./en.settings.ts";
 
-export const en: Record<Key, string> = {
+const base = {
   "boot.loading": "Loading …",
   "common.cancel": "Cancel",
   "common.close": "Close",
@@ -32,7 +33,7 @@ export const en: Record<Key, string> = {
   "banner.offline": "JDownloader does not answer.",
   "banner.offlineHint": "Actions are off until the connection is back. This view catches up by itself.",
   "banner.misconfigured": "The address of JDownloader does not fit.",
-  "banner.misconfiguredHint": "Check the address in the settings.",
+  "banner.misconfiguredHint": "Check the address in Diagnostics.",
   "banner.web": "No connection to JDWeb.",
   "banner.webDetail": "The view keeps trying.",
 
@@ -277,8 +278,7 @@ export const en: Record<Key, string> = {
   "setup.submit": "Create account",
   "setup.badToken": "The token is not right. It is in the log of JDWeb.",
 
-  "settings.soon": "This section is being built.",
-
+  
   "help.title": "Keyboard shortcuts",
   "help.add": "Add links",
   "help.filter": "Focus the filter",
@@ -307,4 +307,6 @@ export const en: Record<Key, string> = {
   "err.internal": "Error in JDWeb. Details are in the log.",
   "err.network": "JDWeb cannot be reached.",
   "err.unknown": "Unknown error.",
-};
+} as const;
+
+export const en: Record<Key, string> = { ...base, ...enMore };

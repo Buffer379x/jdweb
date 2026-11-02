@@ -1,5 +1,7 @@
 // German dictionary. The keys of this file are the type of all dictionaries.
-export const de = {
+import { deMore } from "./de.settings.ts";
+
+const base = {
   "boot.loading": "Lade …",
   "common.cancel": "Abbrechen",
   "common.close": "Schließen",
@@ -31,7 +33,7 @@ export const de = {
   "banner.offline": "JDownloader antwortet nicht.",
   "banner.offlineHint": "Aktionen sind gesperrt, bis die Verbindung wieder steht. Die Anzeige holt sich das selbst.",
   "banner.misconfigured": "Die Adresse von JDownloader passt nicht.",
-  "banner.misconfiguredHint": "Prüfe die Adresse in den Einstellungen.",
+  "banner.misconfiguredHint": "Prüfe die Adresse in der Diagnose.",
   "banner.web": "Keine Verbindung zu JDWeb.",
   "banner.webDetail": "Die Anzeige versucht es erneut.",
 
@@ -276,8 +278,7 @@ export const de = {
   "setup.submit": "Konto anlegen",
   "setup.badToken": "Das Token stimmt nicht. Es steht im Log von JDWeb.",
 
-  "settings.soon": "Dieser Bereich wird gerade aufgebaut.",
-
+  
   "help.title": "Tastenkürzel",
   "help.add": "Links hinzufügen",
   "help.filter": "Filter fokussieren",
@@ -307,5 +308,7 @@ export const de = {
   "err.network": "JDWeb ist nicht erreichbar.",
   "err.unknown": "Unbekannter Fehler.",
 } as const;
+
+export const de = { ...base, ...deMore } as const;
 
 export type Key = keyof typeof de;

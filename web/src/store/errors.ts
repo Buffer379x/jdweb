@@ -24,3 +24,8 @@ errorToast.fn = (e) => {
   if (isApiError(e) && e.code === "unauthorized") return; // the login page says it
   pushToast("error", errorText(e), errorDetail(e));
 };
+
+/** A wrong password in /password and /totp/* is a 403, not a lost session. */
+export function passwordErrorText(e: unknown): string {
+  return isApiError(e) && e.code === "forbidden" ? t("account.wrongPassword") : errorText(e);
+}

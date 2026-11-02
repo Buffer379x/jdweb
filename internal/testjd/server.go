@@ -73,6 +73,8 @@ type Server struct {
 	revision   int64
 	notDocker  bool
 	archives   []Archive
+	meta       map[string]ConfigMeta
+	x          extras
 }
 
 type toggles struct {
@@ -103,6 +105,7 @@ func start(ln net.Listener) *Server {
 		config:     defaultConfig(),
 		defaults:   defaultConfig(),
 		revision:   50639,
+		meta:       map[string]ConfigMeta{},
 	}
 	for i := range s.lists {
 		s.lists[i].counter = s.nextID() // JDownloader's counters are never 0

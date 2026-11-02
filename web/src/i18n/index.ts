@@ -49,3 +49,8 @@ export function plural(base: PluralKey, n: number, params?: Params): string {
   const key = `${base}.${n === 1 ? "one" : "other"}` as Key;
   return format(dictionaries[lang.value][key], { n, ...params });
 }
+
+/** Whether a key from the server (a diagnostics message key) has a text. */
+export function has(key: string): key is Key {
+  return Object.prototype.hasOwnProperty.call(dictionaries.de, key);
+}

@@ -5,7 +5,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"regexp"
-	"sort"
 	"strings"
 	"time"
 )
@@ -42,19 +41,12 @@ func init() {
 
 	// Calls that change settings of JDownloader this fake does not model: they
 	// are logged and answer success.
-	for _, p := range []string{"/accountsV2/addAccount", "/accountsV2/setUserNameAndPassword", "/accountsV2/enableAccounts",
-		"/accountsV2/disableAccounts", "/accountsV2/removeAccounts", "/accountsV2/refreshAccounts",
-		"/accountsV2/updateBasicAuth", "/accountsV2/removeBasicAuths", "/extraction/addArchivePassword"} {
+	for _, p := range []string{"/accountsV2/refreshAccounts", "/extraction/addArchivePassword"} {
 		register(p, func(_ context.Context, s *Server, a args) (any, *apiErr) { return "", nil })
-	}
-	for _, p := range []string{"/extensions/install", "/extensions/setEnabled", "/plugins/set", "/plugins/reset",
-		"/extraction/cancelExtraction"} {
-		register(p, func(_ context.Context, s *Server, a args) (any, *apiErr) { return true, nil })
 	}
 	for _, p := range []string{"/linkgrabberv2/setVariant", "/linkgrabberv2/addVariantCopy"} {
 		register(p, func(_ context.Context, s *Server, a args) (any, *apiErr) { return "", nil })
 	}
-	register("/accountsV2/addBasicAuth", func(_ context.Context, s *Server, a args) (any, *apiErr) { return s.nextID(), nil })
 	register("/extraction/startExtractionNow", func(_ context.Context, s *Server, a args) (any, *apiErr) {
 		return map[string]bool{}, nil
 	})
@@ -104,12 +96,6 @@ func init() {
 		return true, nil
 	})
 
-	// Lists that are empty in the fake.
-	for _, p := range []string{"/accountsV2/listAccounts", "/accountsV2/listBasicAuth", "/accountsV2/listPremiumHoster",
-		"/extensions/list", "/plugins/list", "/plugins/query", "/extraction/getQueue"} {
-		register(p, func(_ context.Context, s *Server, a args) (any, *apiErr) { return []any{}, nil })
-	}
-
 	// Icons answer with image bytes, not JSON. The fake sends a 1x1 PNG.
 	for _, p := range []string{"/contentV2/getFavIcon", "/contentV2/getFileIcon"} {
 		register(p, func(_ context.Context, s *Server, a args) (any, *apiErr) {
@@ -125,6 +111,7 @@ func init() {
 	registerEvents()
 	registerCaptchaDialogs()
 	registerConfig()
+	registerExtras()
 }
 
 // ---- download controller and toolbar
@@ -532,6 +519,9 @@ func registerCaptchaDialogs() {
 		}
 		for i, d := range s.dialogs {
 			if d.ID == id {
+				if err := s.wrongDialogOrder(id); err != nil {
+					return nil, err
+				}
 				s.dialogs = append(s.dialogs[:i], s.dialogs[i+1:]...)
 				s.emit("dialogs", "EXPIRED", map[string]any{"id": id})
 				return "", nil
@@ -584,6 +574,9 @@ func registerConfig() {
 		if !ok {
 			return false, nil
 		}
+		if m, ok := s.meta[k]; ok && m.AbstractType != "" {
+			return s.setMeta(k, m, raw), nil
+		}
 		switch old.(type) {
 		case bool:
 			var v bool
@@ -628,9 +621,11 @@ func registerConfig() {
 	})
 	register("/config/query", func(_ context.Context, s *Server, a args) (any, *apiErr) {
 		var q struct {
-			Pattern       string `json:"pattern"`
-			Values        bool   `json:"values"`
-			DefaultValues bool   `json:"defaultValues"`
+			Pattern           string `json:"pattern"`
+			ConfigInterface   string `json:"configInterface"`
+			IncludeExtensions bool   `json:"includeExtensions"`
+			Values            bool   `json:"values"`
+			DefaultValues     bool   `json:"defaultValues"`
 		}
 		if err := a.scan(&q); err != nil {
 			return nil, err
@@ -639,37 +634,15 @@ func registerConfig() {
 		if err != nil {
 			return nil, badParams(q.Pattern)
 		}
-		var keys []string
-		for k := range s.config {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
-		out := []any{}
-		for _, k := range keys {
-			iface, key, _ := strings.Cut(k, "/")
-			if !re.MatchString(key) && !re.MatchString(iface+"."+key) {
-				continue
+		return s.queryConfig(func(iface, key string, m ConfigMeta) bool {
+			if m.Plugin != "" || (m.Extension && !q.IncludeExtensions) {
+				return false
 			}
-			e := map[string]any{"interfaceName": iface, "key": key}
-			switch s.config[k].(type) {
-			case bool:
-				e["type"], e["abstractType"] = "boolean", "BOOLEAN"
-			case int64:
-				e["type"], e["abstractType"] = "int", "INT"
-			case []string:
-				e["type"], e["abstractType"] = "java.util.List<java.lang.String>", "STRING_LIST"
-			default:
-				e["type"], e["abstractType"] = "java.lang.String", "STRING"
+			if q.ConfigInterface != "" && q.ConfigInterface != iface {
+				return false
 			}
-			if q.Values {
-				e["value"] = s.config[k]
-			}
-			if q.DefaultValues {
-				e["defaultValue"] = s.defaults[k]
-			}
-			out = append(out, e)
-		}
-		return out, nil
+			return re.MatchString(key) || re.MatchString(iface+"."+key)
+		}, q.Values, q.DefaultValues), nil
 	})
 }
 

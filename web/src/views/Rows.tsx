@@ -1,5 +1,6 @@
 import type { ComponentChildren } from "preact";
 import type { DlLink, DlPackage, LgLink, LgPackage } from "../api/types.ts";
+import { HosterIcon } from "../components/HosterIcon.tsx";
 import { Icon } from "../components/Icon.tsx";
 import { Lamp } from "../components/Lamp.tsx";
 import { Segbar } from "../components/Segbar.tsx";
@@ -66,7 +67,7 @@ function Hosts({ hosts }: { hosts: string[] }) {
 function HostCell({ host }: { host: string }) {
   return (
     <span class="host" title={host}>
-      <img class="host-icon" src={`/api/v1/icons/hoster/${encodeURIComponent(host)}`} alt="" width={16} height={16} loading="lazy" decoding="async" />
+      <HosterIcon host={host} />
       <span class="host-text" dir="auto">{host}</span>
     </span>
   );

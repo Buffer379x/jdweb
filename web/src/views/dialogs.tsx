@@ -43,8 +43,8 @@ export function UrlsDialog({ urls, onClose }: { urls: string[]; onClose: () => v
   );
 }
 
-export function VariantsDialog({ linkId, name, variants, onClose }: { linkId: string; name: string; variants: LinkVariant[]; onClose: () => void }) {
-  const [sel, setSel] = useState(variants[0]?.id ?? "");
+export function VariantsDialog({ linkId, name, variants, current, onClose }: { linkId: string; name: string; variants: LinkVariant[]; current?: string; onClose: () => void }) {
+  const [sel, setSel] = useState(current && variants.some((v) => v.id === current) ? current : (variants[0]?.id ?? ""));
   const [busy, setBusy] = useState(false);
   const act = async (kind: "set-variant" | "add-variant") => {
     setBusy(true);
@@ -71,6 +71,7 @@ export function VariantsDialog({ linkId, name, variants, onClose }: { linkId: st
           <label key={v.id} class="choice">
             <input type="radio" name="variant" checked={sel === v.id} data-autofocus={i === 0 ? "" : undefined} onChange={() => setSel(v.id)} />
             <span dir="auto">{v.name}</span>
+            {v.id === current ? <span class="cfg-tag current">{t("variant.current")}</span> : null}
           </label>
         ))}
       </div>

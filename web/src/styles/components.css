@@ -70,9 +70,6 @@
 .empty .btn { color: var(--text); }
 .empty .btn.pri { color: var(--on-accent); }
 .empty .btn kbd { color: inherit; border-color: currentColor; opacity: 0.8; }
-.settings-stub { padding: 24px 16px; max-width: 70ch; }
-.settings-stub h1 { font: 600 26px/1.1 var(--cond); letter-spacing: 0.02em; text-transform: uppercase; margin-bottom: 8px; }
-.settings-stub p { color: var(--muted); }
 
 /* ---- sign-in and setup -------------------------------------------------- */
 .auth { height: 100%; display: grid; place-items: center; padding: 24px 16px; overflow: auto; position: relative; }

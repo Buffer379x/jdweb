@@ -12,6 +12,7 @@ import { live, pushToast, pushToastForError } from "../store/app.ts";
 import { openDialog } from "../store/dialogs.ts";
 import { describe, isEmpty, targetOf, type AnyStore, type Target } from "../store/target.ts";
 import { UrlsDialog, VariantsDialog } from "./dialogs.tsx";
+import { extractNow, openArchiveSettings } from "./Extraction.tsx";
 
 export interface Body {
   linkIds?: string[];
@@ -137,7 +138,7 @@ export async function chooseVariant(store: AnyStore): Promise<void> {
   if (!link) return;
   try {
     const res = await get<{ variants: LinkVariant[] }>(`/linkgrabber/variants/${link.id}`);
-    openDialog((close) => <VariantsDialog linkId={link.id} name={link.name} variants={res.variants ?? []} onClose={close} />);
+    openDialog((close) => <VariantsDialog linkId={link.id} name={link.name} variants={res.variants ?? []} current={(link as { variant?: LinkVariant | null }).variant?.id} onClose={close} />);
   } catch (e) {
     pushToastForError(e);
     store.reloadSoon(150);
@@ -283,6 +284,8 @@ const DOWNLOAD_ONLY_TOP: Def[] = [
   { id: "resume", label: "act.resume", enabled: any, run: (tg) => void runAction(tg.list, "resume", ids(tg), tg.store) },
   { id: "unskip", label: "act.unskip", enabled: any, run: (tg) => void runAction(tg.list, "unskip", ids(tg), tg.store) },
   { id: "reset", label: "act.reset", enabled: any, run: (tg) => resetSelected(tg.store) },
+  { id: "extractNow", label: "act.extractNow", enabled: any, run: (tg) => void extractNow(tg.store), separatorBefore: true },
+  { id: "archiveSettings", label: "act.archiveSettings", enabled: any, run: (tg) => void openArchiveSettings(tg.store) },
 ];
 const DOWNLOAD_STOPMARK: Def[] = [
   { id: "stopmarkSet", label: "act.stopmarkSet", enabled: one, run: (tg) => stopMark(tg.store, false), separatorBefore: true },

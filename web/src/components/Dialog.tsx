@@ -23,6 +23,8 @@ interface DialogProps {
 /** A modal dialog: focus moves in, Tab stays inside, Escape closes, focus returns where it was. */
 export function Dialog({ title, onClose, children, footer, wide, sticky, onDismiss, alert }: DialogProps) {
   const dismiss = onDismiss ?? onClose;
+  const dismissRef = useRef(dismiss);
+  dismissRef.current = dismiss;
   const bodyId = useId();
   const ref = useRef<HTMLDivElement>(null);
   const titleId = useId();
@@ -34,6 +36,27 @@ export function Dialog({ title, onClose, children, footer, wide, sticky, onDismi
     return () => {
       if (prev && document.contains(prev)) prev.focus();
     };
+  }, []);
+  // When the focused element goes away (a button that turns into a field), the focus falls to the page.
+  // Escape and Tab still belong to the topmost dialog then.
+  useEffect(() => {
+    const topmost = () => {
+      const all = document.querySelectorAll(".scrim");
+      return all.length > 0 && all[all.length - 1]!.contains(ref.current);
+    };
+    const outside = (e: KeyboardEvent) => {
+      if (e.defaultPrevented || !topmost() || ref.current!.contains(document.activeElement) || document.querySelector(".menu-layer")) return;
+      if (e.key === "Escape") {
+        e.preventDefault();
+        dismissRef.current();
+      } else if (e.key === "Tab") {
+        e.preventDefault();
+        const els = [...ref.current!.querySelectorAll<HTMLElement>(FOCUSABLE)].filter((x) => x.offsetParent !== null);
+        (e.shiftKey ? els[els.length - 1] : els[0])?.focus();
+      }
+    };
+    document.addEventListener("keydown", outside);
+    return () => document.removeEventListener("keydown", outside);
   }, []);
   const onKey = (e: KeyboardEvent) => {
     if (e.key === "Escape") {

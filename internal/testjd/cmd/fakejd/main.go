@@ -31,6 +31,7 @@ func main() {
 	addr := flag.String("addr", "127.0.0.1:3128", "address of the fake JDownloader API")
 	ctl := flag.String("ctl", "127.0.0.1:3129", "address of the control server, empty for none")
 	many := flag.Int("links", 0, "instead of the small seed: this many links in packages of 100")
+	generated := flag.Int("config", 0, "this many generated settings on top of the seed")
 	tick := flag.Duration("tick", time.Second, "how often running downloads advance, 0 for never")
 	flag.Parse()
 
@@ -44,6 +45,7 @@ func main() {
 	} else {
 		seed(s)
 	}
+	seedExtras(s, *generated)
 	s.SetController("RUNNING")
 	if *tick > 0 {
 		go advance(s, *tick)
@@ -144,7 +146,7 @@ func seed(s *testjd.Server) {
 		link("datei-a.zip", "example.org", 0, 0, func(l *testjd.Link) { l.Availability = "UNKNOWN" }),
 		link("datei-b.zip", "example.org", 0, 0, func(l *testjd.Link) { l.Availability = "TEMP_UNKNOWN" }),
 	)
-	s.AddCaptcha(testjd.CaptchaJob{ID: 0, Hoster: "example.org"})
+	s.AddCaptcha(imageCaptcha("example.org", "W7K3Q", 4*time.Minute))
 }
 
 func seedMany(s *testjd.Server, n int) {
@@ -210,8 +212,16 @@ func serveControl(s *testjd.Server, addr string) {
 	mux.HandleFunc("/down", func(w http.ResponseWriter, _ *http.Request) { s.Down(); fmt.Fprintln(w, "down") })
 	mux.HandleFunc("/up", func(w http.ResponseWriter, _ *http.Request) { s.Up(); fmt.Fprintln(w, "up") })
 	mux.HandleFunc("/captcha", func(w http.ResponseWriter, _ *http.Request) {
-		s.AddCaptcha(testjd.CaptchaJob{Hoster: "example.org"})
+		s.AddCaptcha(imageCaptcha("example.org", "X9P2M", 2*time.Minute))
 		fmt.Fprintln(w, "captcha")
+	})
+	mux.HandleFunc("/captcha-interactive", func(w http.ResponseWriter, _ *http.Request) {
+		s.AddCaptcha(interactiveCaptcha("rapidgator.net", 3*time.Minute))
+		fmt.Fprintln(w, "interactive captcha")
+	})
+	mux.HandleFunc("/dialogs", func(w http.ResponseWriter, _ *http.Request) {
+		addDialogs(s)
+		fmt.Fprintln(w, "dialogs")
 	})
 	mux.HandleFunc("/state", func(w http.ResponseWriter, _ *http.Request) {
 		fmt.Fprintln(w, s.Controller(), len(s.Links(testjd.Downloads)), len(s.Links(testjd.Linkgrabber)))

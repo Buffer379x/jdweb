@@ -3,7 +3,7 @@ import { useEffect } from "preact/hooks";
 import { Toasts } from "../components/Toasts.tsx";
 import { formatEta, formatPercent, formatSpeed, percent } from "../lib/format.ts";
 import { lang, t } from "../i18n/index.ts";
-import { checkSession, helpOpen, live, prefs, route, session, setupRequired, status, navigate, pushToastForError } from "../store/app.ts";
+import { captchaDialogOpen, checkSession, extractionOpen, helpOpen, jdRestarting, live, prefs, pushToast, questionDialogOpen, route, session, setupRequired, status, navigate, pushToastForError } from "../store/app.ts";
 import { dialogStack } from "../store/dialogs.ts";
 import { stores } from "../store/stores.ts";
 import { ensureList, startLive } from "../store/live.ts";
@@ -11,7 +11,11 @@ import { post } from "../api/client.ts";
 import { LoginView, SetupView } from "./Auth.tsx";
 import { ActionBar, Banner, ControlDesk, Footbar, SpeedBlock, Tabs, Toolbar, UserMenu, Waiting } from "./Chrome.tsx";
 import { ListView } from "./ListView.tsx";
-import { SettingsView } from "./Settings.tsx";
+import { SettingsView } from "./settings/Layout.tsx";
+import { CaptchaDialog } from "./Captcha.tsx";
+import { QuestionsDialog } from "./Questions.tsx";
+import { useFirstRun } from "./FirstRun.tsx";
+import { startQueuePolling } from "../store/extraction.ts";
 import { HelpDialog } from "./Help.tsx";
 import { openAddLinks } from "./AddLinks.tsx";
 import { DetailsPanel } from "./Details.tsx";
@@ -81,8 +85,26 @@ effect(() => {
   document.title = title;
 });
 
+// JDownloader came back after a restart that was asked for here.
+let sawDown = false;
+effect(() => {
+  const c = status.value?.connection;
+  if (!jdRestarting.value) {
+    sawDown = false;
+    return;
+  }
+  if (c && c !== "connected") sawDown = true;
+  else if (c === "connected" && sawDown) {
+    sawDown = false;
+    jdRestarting.value = false;
+    pushToast("info", t("sys.backAgain"));
+  }
+});
+
 function Shell() {
   const r = route.value;
+  useFirstRun();
+  useEffect(() => startQueuePolling(() => extractionOpen.peek()), []);
   const store = r === "linkgrabber" ? stores.linkgrabber : stores.downloads;
   useEffect(() => {
     if (r !== "settings") ensureList(r);
@@ -136,6 +158,8 @@ export function App() {
   return (
     <>
       {body}
+      {session.value && captchaDialogOpen.value ? <CaptchaDialog /> : null}
+      {session.value && questionDialogOpen.value ? <QuestionsDialog /> : null}
       {dialogStack.value.map((d) => <div key={d.id}>{d.render()}</div>)}
       {helpOpen.value ? <HelpDialog onClose={() => (helpOpen.value = false)} /> : null}
       <Toasts />
