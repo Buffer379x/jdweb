@@ -245,14 +245,18 @@ func (s *Store) applyDelta(ev jd.Event, list List) Effect {
 	if !isLink && kind != "PACKAGE_UPDATE" {
 		return Effect{Unknown: true}
 	}
-	var d delta
-	if err := json.Unmarshal(ev.EventData, &d); err != nil || d.UUID == nil {
+	d, clean, ok := decodeDelta(ev.EventData)
+	if !ok || d.UUID == nil {
 		return Effect{Unknown: true}
 	}
 	var eff Effect
-	if hasField {
+	switch {
+	case !clean:
+		// The named field may be the wrong one: that is no value, not a zero.
+		eff.Unknown = true
+	case hasField:
 		if zero, ok := named[field]; ok {
-			zero(&d)
+			zero(d)
 		} else if !notMirrored[field] {
 			eff.Unknown = true
 		}
@@ -311,20 +315,27 @@ func (s *Store) Drain() []Patch {
 
 // MarkStale records that the connection was lost. The last known values stay
 // visible, but nothing may keep looking as if it were running: every link and
-// package stops, with speed 0 and no eta. The next full load of a list makes it
-// fresh again. The changes leave as normal patches.
+// package stops, with speed 0, no eta and without a status text like "Download"
+// that only held while it ran. The next full load of a list makes it fresh
+// again. The changes leave as normal patches.
 func (s *Store) MarkStale() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for i := range s.dl.links {
 		l := &s.dl.links[i]
 		sk := sink{all: s.dl.pend.links, id: s.dl.lnkOrder[i].id}
+		if l.Running && !l.Finished {
+			set(&sk, "status", &l.Status, "")
+		}
 		set(&sk, "running", &l.Running, false)
 		settleDlLink(l, &sk)
 	}
 	for i := range s.dl.pkgs {
 		p := &s.dl.pkgs[i]
 		sk := sink{all: s.dl.pend.packages, id: s.dl.pkgOrder[i]}
+		if p.Running && !p.Finished {
+			set(&sk, "status", &p.Status, "")
+		}
 		set(&sk, "running", &p.Running, false)
 		settleDlPackage(p, &sk)
 	}

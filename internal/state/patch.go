@@ -1,6 +1,8 @@
 package state
 
 import (
+	"encoding/json"
+	"errors"
 	"reflect"
 	"strconv"
 	"strings"
@@ -111,6 +113,40 @@ type delta struct {
 	OfflineCount     *int      `json:"offlineCount"`
 	UnknownCount     *int      `json:"unknownCount"`
 	TempUnknownCount *int      `json:"tempUnknownCount"`
+}
+
+// decodeDelta reads an event payload. clean is false if a value had the wrong
+// type: that field is left out and the others are kept. ok is false if the
+// payload is no object at all.
+func decodeDelta(data []byte) (d *delta, clean, ok bool) {
+	d = new(delta)
+	err := json.Unmarshal(data, d)
+	if err == nil {
+		return d, true, true
+	}
+	var wrongType *json.UnmarshalTypeError
+	if !errors.As(err, &wrongType) {
+		return nil, false, false
+	}
+	// encoding/json has set the pointer of a wrongly typed field to a zero value,
+	// which looks like a real one. So go through the fields one by one. This path
+	// is for answers that should not exist, it does not have to be fast.
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(data, &fields) != nil {
+		return nil, false, false
+	}
+	*d = delta{}
+	for name, value := range fields {
+		one, err := json.Marshal(map[string]json.RawMessage{name: value})
+		if err != nil {
+			continue
+		}
+		var probe delta
+		if json.Unmarshal(one, &probe) == nil {
+			_ = json.Unmarshal(one, d)
+		}
+	}
+	return d, false, true
 }
 
 func orZero[T any](p **T) {

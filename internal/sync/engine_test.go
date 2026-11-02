@@ -173,6 +173,13 @@ func delta(kind string, id int64, field string, value any) testjd.Event {
 	return testjd.Event{Publisher: "downloads", EventID: kind + "." + field, EventData: map[string]any{"uuid": id, field: value}}
 }
 
+// progress moves a link forward like a download does: in the fake and as an event,
+// so that a reload at any moment finds the same value.
+func progress(srv *testjd.Server, link, loaded int64) {
+	srv.UpdateLink(testjd.Downloads, link, func(l *testjd.Link) { l.BytesLoaded = loaded })
+	srv.Emit(delta("LINK_UPDATE", link, "bytesLoaded", loaded))
+}
+
 func addRunning(srv *testjd.Server, name string) (pkg, link int64) {
 	p, l := srv.AddPackage(testjd.Downloads, testjd.Package{Name: name},
 		testjd.Link{Name: name + ".bin", BytesTotal: 1000, BytesLoaded: 100, Speed: 50, ETA: 18, Running: true})
@@ -689,11 +696,23 @@ func intervalMs(c testjd.Call) int64 {
 	return ms
 }
 
+// pollGap waits for the next status poll and returns how long n more take.
+func pollGap(t *testing.T, srv *testjd.Server, n int) time.Duration {
+	t.Helper()
+	count := func() int { return len(srv.CallsTo(pathToolbar)) }
+	start := count()
+	eventually(t, "the next poll", func() bool { return count() > start })
+	begin, first := time.Now(), count()
+	eventually(t, fmt.Sprintf("%d more polls", n), func() bool { return count() >= first+n })
+	return time.Since(begin)
+}
+
 func TestAttachSetsEventIntervalAndPollRate(t *testing.T) {
+	const slow = 150 * time.Millisecond
 	srv := testjd.New(t)
 	cfg := fast()
 	cfg.PollAttached = 10 * time.Millisecond
-	cfg.PollDetached = time.Hour
+	cfg.PollDetached = slow
 	cfg.EventsAttached, cfg.EventsDetached = 1000*time.Millisecond, 5000*time.Millisecond
 	f := start(t, srv, cfg)
 	f.waitConn(t, state.ConnConnected)
@@ -709,35 +728,59 @@ func TestAttachSetsEventIntervalAndPollRate(t *testing.T) {
 		t.Errorf("interval without a browser = %d", got)
 	}
 
-	// Without a browser the slow rate: no further polls.
-	base := len(srv.CallsTo(pathToolbar))
+	// Without a browser: the slow rate. A timer can only be late, so this bound is firm.
+	const atLeast = 3 * slow * 8 / 10
+	detached := pollGap(t, srv, 3)
+	if detached < atLeast {
+		t.Errorf("3 polls without a browser took %v, want at least %v", detached, atLeast)
+	}
+
+	// With a browser: much faster, measured against the slow rate just seen.
 	f.e.Attach()
 	eventually(t, "the fast interval", func() bool { return lastInterval() == 1000 })
-	eventually(t, "the fast poll", func() bool { return len(srv.CallsTo(pathToolbar)) >= base+3 })
+	attached := pollGap(t, srv, 12)
+	if perPoll, slowPoll := attached/12, detached/3; perPoll > slowPoll/2 {
+		t.Errorf("with a browser %v per poll, without %v", perPoll, slowPoll)
+	}
 
-	// A second tab changes nothing.
+	// A second tab changes nothing, the polls in between give it time to show.
 	n := len(srv.CallsTo(pathInterval))
 	f.e.Attach()
 	f.e.Detach()
+	if got := pollGap(t, srv, 3); got > 3*slow {
+		t.Errorf("one browser left, but 3 polls took %v", got)
+	}
 	if got := len(srv.CallsTo(pathInterval)); got != n {
 		t.Errorf("interval set %d more times with one browser left", got-n)
 	}
 
+	// The last browser gone: slow again.
 	f.e.Detach()
 	eventually(t, "the slow interval", func() bool { return lastInterval() == 5000 })
-	base = len(srv.CallsTo(pathToolbar))
-	// One poll may have been on its way, then the rate is one per hour.
-	marker := len(srv.CallsTo(pathToolbar))
-	srv.Emit(delta("LINK_UPDATE", 1, "speed", 1))
-	eventually(t, "a calm moment", func() bool { return len(srv.CallsTo(pathToolbar)) <= marker+1 })
-	if got := len(srv.CallsTo(pathToolbar)); got > base+1 {
-		t.Errorf("polled %d times without a browser", got-base)
+	if got := pollGap(t, srv, 3); got < atLeast {
+		t.Errorf("3 polls after the last browser left took %v, want at least %v", got, atLeast)
 	}
 
 	// More detaches than attaches do no harm.
 	f.e.Detach()
 	f.e.Attach()
 	eventually(t, "attached again", func() bool { return lastInterval() == 1000 })
+}
+
+// The default poll rate with a browser, in real time.
+func TestPollRateWithRealTiming(t *testing.T) {
+	if testing.Short() {
+		t.Skip("waits for real polls")
+	}
+	srv := testjd.New(t)
+	cfg := jdsync.DefaultConfig()
+	cfg.Logger = fast().Logger
+	f := start(t, srv, cfg)
+	f.e.Attach()
+	f.waitConn(t, state.ConnConnected)
+	if got := pollGap(t, srv, 2); got < 3600*time.Millisecond || got > 6*time.Second {
+		t.Errorf("2 polls took %v, want about 4 s", got)
+	}
 }
 
 func TestBrowserOpenBeforeTheConnection(t *testing.T) {
@@ -860,7 +903,7 @@ func TestInternalErrorsDoNotStopSync(t *testing.T) {
 	srv.FailNext(pathListen, 500, trace)
 	srv.FailNext(pathListen, 500, `{"src":"DEVICE","data":null,"type":"INTERNAL_SERVER_ERROR"}`)
 	srv.FailNext(pathListen, 400, `{"src":"DEVICE","data":"x","type":"BAD_PARAMETERS"}`)
-	srv.Emit(delta("LINK_UPDATE", link, "bytesLoaded", 321))
+	progress(srv, link, 321)
 	eventually(t, "events after failed listens", func() bool { return dlLink(t, f.store, link).BytesLoaded == 321 })
 
 	// A failed reload is tried again.
@@ -1076,6 +1119,374 @@ func TestRunEndsWithItsContext(t *testing.T) {
 	eventually(t, "the subscription removed", func() bool { return len(srv.Subscriptions()) == 0 })
 }
 
+const htmlAnswer = "<html>a hiccup of a proxy</html>"
+
+// Fix round 1: one bad answer from a JDownloader that is there changes nothing
+// the browsers can see: no misconfigured, no offline, no running:false, no new
+// subscription.
+func TestBadAnswersFromAHealthyJDownloaderAreSoft(t *testing.T) {
+	srv := testjd.New(t)
+	_, link := addRunning(srv, "dl")
+	srv.SetController("RUNNING")
+	cfg := fast()
+	cfg.PollAttached = 5 * time.Millisecond
+	cfg.StructureCheck = 10 * time.Millisecond
+	f := start(t, srv, cfg)
+	f.e.Attach()
+	f.waitConn(t, state.ConnConnected)
+	subs := srv.Subscriptions()
+	f.inbox.reset()
+
+	failing := []struct {
+		path   string
+		status int
+		body   string
+	}{
+		{pathToolbar, 200, htmlAnswer},
+		{pathToolbar, 501, ""},
+		{"/config/get", 200, htmlAnswer},
+		{"/linkgrabberv2/isCollecting", 501, ""},
+		{"/linkcrawler/isCrawling", 200, htmlAnswer},
+		{"/captcha/list", 200, `{"data":"not a list"}`}, // a decode mismatch
+		{"/dialogs/list", 200, htmlAnswer},
+		{pathSubStat, 200, htmlAnswer},
+		{"/downloadsV2/getStructureChangeCounter", 200, htmlAnswer},
+		{"/linkgrabberv2/getChildrenChanged", 501, ""},
+		{pathListen, 200, htmlAnswer},
+		{pathListen, 501, ""},
+		{pathLinks, 200, htmlAnswer},
+	}
+	for _, c := range failing {
+		srv.FailNext(c.path, c.status, c.body)
+	}
+	_, ids := srv.AddPackage(testjd.Downloads, testjd.Package{Name: "after"}, testjd.Link{Name: "after.bin"})
+	srv.Emit(testjd.Event{Publisher: "downloads", EventID: "ADD_PACKAGE", EventData: map[string]any{"uuid": 1}})
+
+	for _, c := range failing {
+		eventually(t, "the bad answer on "+c.path, func() bool {
+			return slices.ContainsFunc(srv.CallsTo(c.path), func(call testjd.Call) bool { return call.Status == c.status })
+		})
+	}
+	eventually(t, "the reload worked in the end", func() bool { return hasLink(f.store, ids[0]) })
+	progress(srv, link, 222)
+	eventually(t, "events go on", func() bool { return dlLink(t, f.store, link).BytesLoaded == 222 })
+
+	if st := f.e.Status(); st.Connection != state.ConnConnected || st.ConnectionDetail != "" {
+		t.Errorf("status = %+v", st)
+	}
+	for _, conn := range []string{"misconfigured", "offline", "syncing"} {
+		if f.inbox.has("connection", conn) {
+			t.Errorf("the browsers saw %s", conn)
+		}
+	}
+	if f.inbox.has("patch", `"running":false`) {
+		t.Error("running:false flicker")
+	}
+	if !dlLink(t, f.store, link).Running {
+		t.Error("the link stopped")
+	}
+	if got := srv.Subscriptions(); !slices.Equal(got, subs) {
+		t.Errorf("subscriptions = %v, before %v", got, subs)
+	}
+	if n := len(srv.CallsTo("/events/subscribe")); n != 1 {
+		t.Errorf("subscribed %d times", n)
+	}
+}
+
+// A bad answer between the ping and connected is offline with its own hint as
+// long as the ping still answers, never "another service".
+func TestBadAnswerBeforeConnectedIsNotAnotherService(t *testing.T) {
+	for name, c := range map[string]struct {
+		path, body string
+		status     int
+	}{
+		"subscribe, html":     {"/events/subscribe", htmlAnswer, 200},
+		"subscribe, no id":    {"/events/subscribe", `{"data":{"subscriptionid":-1}}`, 200},
+		"subscribe, void":     {"/events/subscribe", `{"data":""}`, 200},
+		"packages, html":      {pathPackages, htmlAnswer, 200},
+		"links, unknown path": {pathLinks, "", 501},
+		"linkgrabber, html":   {"/linkgrabberv2/queryLinks", htmlAnswer, 200},
+		"counter, stacktrace": {"/downloadsV2/getStructureChangeCounter", "java.lang.NullPointerException", 500},
+	} {
+		t.Run(name, func(t *testing.T) {
+			srv := testjd.New(t)
+			srv.FailNext(c.path, c.status, c.body)
+			cfg := fast()
+			cfg.BackoffMin, cfg.BackoffMax = 200*time.Millisecond, 200*time.Millisecond
+			f := start(t, srv, cfg)
+			st := f.waitConn(t, state.ConnOffline)
+			if want := state.DetailFailing(srv.URL); st.ConnectionDetail != want {
+				t.Errorf("detail = %q, want %q", st.ConnectionDetail, want)
+			}
+			f.waitConn(t, state.ConnConnected)
+			if f.inbox.has("connection", "misconfigured") {
+				t.Error("the browsers saw misconfigured")
+			}
+			f.stop()
+		})
+	}
+}
+
+// If the ping fails too when asked again, it really is something else now.
+func TestPingAgainAfterABadAnswer(t *testing.T) {
+	srv := testjd.New(t)
+	srv.FailNext(pathPackages, 200, htmlAnswer)
+	srv.FailNext("/device/ping", 200, `{"data":true}`) // the first ping is good
+	srv.FailNext("/device/ping", 200, htmlAnswer)      // the one asked after the bad answer is not
+	cfg := fast()
+	cfg.BackoffMin, cfg.BackoffMax = 200*time.Millisecond, 200*time.Millisecond
+	f := start(t, srv, cfg)
+	st := f.waitConn(t, state.ConnMisconfigured)
+	if st.ConnectionDetail != state.DetailOtherService {
+		t.Errorf("detail = %q", st.ConnectionDetail)
+	}
+	// It is asked at once, not only by the next attempt after a wait in "offline".
+	if f.inbox.has("connection", `"connection":"offline"`) {
+		t.Error("offline came first")
+	}
+	f.waitConn(t, state.ConnConnected)
+}
+
+// A load that fails midway has already put the running links of the first list
+// back into the mirror. They must stop again.
+func TestLoadFailingMidwayLeavesNothingRunning(t *testing.T) {
+	srv := testjd.New(t)
+	pkg, link := addRunning(srv, "dl")
+	srv.SetController("RUNNING")
+	cfg := fast()
+	cfg.BackoffMin, cfg.BackoffMax = 300*time.Millisecond, 300*time.Millisecond
+	f := start(t, srv, cfg)
+	f.waitConn(t, state.ConnConnected)
+
+	srv.FailNext("/linkgrabberv2/queryLinks", 500, "java.lang.NullPointerException")
+	srv.DropSubscription()
+	st := f.waitConn(t, state.ConnOffline)
+	snap := f.store.Snapshot(state.Downloads)
+
+	if st.ConnectionDetail != state.DetailFailing(srv.URL) || st.Speed != 0 || st.Downloads.Running != 0 {
+		t.Errorf("status = %+v", st)
+	}
+	if !snap.Stale {
+		t.Error("not marked stale")
+	}
+	for _, l := range snap.DlLinks {
+		if l.Running || l.Speed != 0 || l.ETA != state.ETAUnknown || l.State == state.LinkRunning {
+			t.Errorf("link after the failed load = %+v", l)
+		}
+	}
+	for _, p := range snap.DlPackages {
+		if p.Running || p.Speed != 0 || p.ETA != state.ETAUnknown {
+			t.Errorf("package %d after the failed load = %+v", pkg, p)
+		}
+	}
+	f.waitConn(t, state.ConnConnected)
+	if got := dlLink(t, f.store, link); !got.Running || got.Speed != 50 {
+		t.Errorf("link after the good load = %+v", got)
+	}
+}
+
+// Fix round 1: a failed long-poll may have cost events, so it reloads.
+func TestFailedListenCatchesUp(t *testing.T) {
+	srv := testjd.New(t)
+	_, link := addRunning(srv, "dl")
+	_, lg := srv.AddPackage(testjd.Linkgrabber, testjd.Package{Name: "lg"}, testjd.Link{Name: "lg.bin"})
+	srv.SetController("RUNNING")
+	f := start(t, srv, fast()) // polls and checks once per hour: only the failure can do it
+	f.waitConn(t, state.ConnConnected)
+	subs := srv.Subscriptions()
+
+	// The event that said so is lost with the failed answer.
+	srv.UpdateLink(testjd.Downloads, link, func(l *testjd.Link) { l.Running, l.Speed, l.ETA = false, 0, 0 })
+	srv.UpdateLink(testjd.Linkgrabber, lg[0], func(l *testjd.Link) { l.Name = "renamed.bin" })
+	srv.FailNext(pathListen, 500, "java.lang.NullPointerException")
+	wakeListen(srv) // one is waiting already, the next one fails
+
+	eventually(t, "the link stopped under connected", func() bool {
+		l := dlLink(t, f.store, link)
+		return !l.Running && l.Speed == 0 && l.State != state.LinkRunning
+	})
+	eventually(t, "the other list too", func() bool {
+		l := f.store.Snapshot(state.Linkgrabber).LgLinks
+		return len(l) == 1 && l[0].Name == "renamed.bin"
+	})
+	if st := f.e.Status(); st.Connection != state.ConnConnected {
+		t.Errorf("status = %+v", st)
+	}
+	if got := srv.Subscriptions(); !slices.Equal(got, subs) {
+		t.Errorf("subscriptions = %v, before %v", got, subs)
+	}
+}
+
+func wakeListen(srv *testjd.Server) {
+	srv.Emit(testjd.Event{Publisher: "downloads", EventID: "BRAND_NEW"})
+}
+
+func TestFiveFailedListensGiveUpTheSubscription(t *testing.T) {
+	srv := testjd.New(t)
+	_, link := addRunning(srv, "dl")
+	f := start(t, srv, fast())
+	f.waitConn(t, state.ConnConnected)
+	before := srv.Subscriptions()
+	f.inbox.reset()
+
+	for range 5 {
+		srv.FailNext(pathListen, 500, "java.lang.NullPointerException")
+	}
+	wakeListen(srv)
+	eventually(t, "a new subscription", func() bool {
+		s := srv.Subscriptions()
+		return len(srv.CallsTo("/events/subscribe")) == 2 && len(s) >= 1 && !slices.Equal(s, before)
+	})
+	f.waitConn(t, state.ConnConnected)
+	eventually(t, "resync announced", func() bool { return f.inbox.has("connection", `"connection":"syncing"`) })
+	progress(srv, link, 444)
+	eventually(t, "events on the new subscription", func() bool { return dlLink(t, f.store, link).BytesLoaded == 444 })
+}
+
+// Failures only count while they are consecutive.
+func TestGoodListenResetsTheFailureCount(t *testing.T) {
+	srv := testjd.New(t)
+	_, link := addRunning(srv, "dl")
+	f := start(t, srv, fast())
+	f.waitConn(t, state.ConnConnected)
+
+	for round := range 3 {
+		for range 4 {
+			srv.FailNext(pathListen, 500, "java.lang.NullPointerException")
+		}
+		wakeListen(srv) // the waiting listen answers well, then four fail
+		want := 1000 + round
+		progress(srv, link, int64(want))
+		eventually(t, "the event behind the failures", func() bool { return dlLink(t, f.store, link).BytesLoaded == int64(want) })
+	}
+	if n := len(srv.CallsTo("/events/subscribe")); n != 1 {
+		t.Errorf("subscribed %d times", n)
+	}
+	if st := f.e.Status(); st.Connection != state.ConnConnected {
+		t.Errorf("status = %+v", st)
+	}
+}
+
+// If what answers the long-poll stops being JDownloader, the ping finds out.
+func TestAnotherServiceTakesOverDuringASession(t *testing.T) {
+	srv := testjd.New(t)
+	cfg := fast()
+	cfg.BackoffMin, cfg.BackoffMax = 300*time.Millisecond, 300*time.Millisecond
+	f := start(t, srv, cfg)
+	f.waitConn(t, state.ConnConnected)
+	for range 5 {
+		srv.FailNext(pathListen, 200, htmlAnswer)
+	}
+	srv.FailNext("/device/ping", 200, htmlAnswer)
+	wakeListen(srv)
+	st := f.waitConn(t, state.ConnMisconfigured)
+	if st.ConnectionDetail != state.DetailOtherService {
+		t.Errorf("detail = %q", st.ConnectionDetail)
+	}
+	f.waitConn(t, state.ConnConnected)
+}
+
+// The toolbar says nothing runs, the mirror says something does: an event got lost.
+func TestStoppedControllerWithRunningLinkReloads(t *testing.T) {
+	srv := testjd.New(t)
+	_, link := addRunning(srv, "dl")
+	srv.SetController("STOPPED_STATE")
+	cfg := fast()
+	cfg.PollAttached = 5 * time.Millisecond
+	f := start(t, srv, cfg)
+	f.waitConn(t, state.ConnConnected)
+	if !dlLink(t, f.store, link).Running {
+		t.Fatal("the link should run in the mirror")
+	}
+	srv.UpdateLink(testjd.Downloads, link, func(l *testjd.Link) { l.Running, l.Speed, l.ETA = false, 0, 0 })
+	f.e.Attach()
+	eventually(t, "the link stopped", func() bool { return !dlLink(t, f.store, link).Running })
+	eventually(t, "the totals", func() bool { return f.e.Status().Downloads.Running == 0 })
+	if st := f.e.Status(); st.Connection != state.ConnConnected {
+		t.Errorf("status = %+v", st)
+	}
+}
+
+// Should JDownloader really report that combination, it costs one reload per
+// structure check, not one per poll.
+func TestStoppedControllerWithRunningLinkDoesNotReloadPerPoll(t *testing.T) {
+	srv := testjd.New(t)
+	addRunning(srv, "dl")
+	srv.SetController("STOPPED_STATE")
+	cfg := fast()
+	cfg.PollAttached = 5 * time.Millisecond
+	f := start(t, srv, cfg)
+	f.e.Attach()
+	f.waitConn(t, state.ConnConnected)
+	before := len(srv.CallsTo(pathLinks))
+	pollGap(t, srv, 20)
+	if got := len(srv.CallsTo(pathLinks)) - before; got > 1 {
+		t.Errorf("%d reloads in 20 polls", got)
+	}
+}
+
+func TestRunningControllerWithRunningLinkDoesNotReload(t *testing.T) {
+	srv := testjd.New(t)
+	addRunning(srv, "dl")
+	srv.SetController("RUNNING")
+	cfg := fast()
+	cfg.PollAttached = 5 * time.Millisecond
+	f := start(t, srv, cfg)
+	f.e.Attach()
+	f.waitConn(t, state.ConnConnected)
+	before := len(srv.CallsTo(pathLinks))
+	pollGap(t, srv, 20)
+	if got := len(srv.CallsTo(pathLinks)) - before; got != 0 {
+		t.Errorf("%d reloads", got)
+	}
+}
+
+func TestKnownRevisionAndDockerSurviveASoftFailure(t *testing.T) {
+	srv := testjd.New(t)
+	f := start(t, srv, fast())
+	st := f.waitConn(t, state.ConnConnected)
+	if st.JD.Revision != 50639 || !st.JD.Docker {
+		t.Fatalf("jd = %+v", st.JD)
+	}
+	f.inbox.reset()
+	srv.FailNext("/jd/getCoreRevision", 500, "java.lang.NullPointerException")
+	srv.FailNext("/system/getSystemInfos", 200, htmlAnswer)
+	srv.DropSubscription()
+	eventually(t, "both failed", func() bool {
+		return slices.ContainsFunc(srv.CallsTo("/jd/getCoreRevision"), func(c testjd.Call) bool { return c.Status == 500 }) &&
+			len(srv.CallsTo("/system/getSystemInfos")) >= 2
+	})
+	eventually(t, "connected on a new subscription", func() bool {
+		return len(srv.CallsTo("/events/subscribe")) == 2 && f.e.Status().Connection == state.ConnConnected
+	})
+	if st := f.e.Status(); st.JD.Revision != 50639 || !st.JD.Docker {
+		t.Errorf("jd = %+v", st.JD)
+	}
+	if f.inbox.has("status", `"revision":0`) || f.inbox.has("status", `"docker":false`) {
+		t.Error("the browsers saw the known values vanish")
+	}
+}
+
+// An empty answer that comes at once must not become a hot loop.
+func TestEmptyListenIsPaced(t *testing.T) {
+	srv := testjd.New(t)
+	srv.SetPollTimeout(0)
+	_, link := addRunning(srv, "dl")
+	f := start(t, srv, fast())
+	f.waitConn(t, state.ConnConnected)
+
+	count := func() int { return len(srv.CallsTo(pathListen)) }
+	first := count()
+	eventually(t, "polls go on", func() bool { return count() > first })
+	begin, base := time.Now(), count()
+	eventually(t, "4 more polls", func() bool { return count() >= base+4 })
+	if got := time.Since(begin); got < 320*time.Millisecond {
+		t.Errorf("4 empty polls took only %v", got)
+	}
+	srv.Emit(delta("LINK_UPDATE", link, "bytesLoaded", 7))
+	eventually(t, "events still arrive", func() bool { return dlLink(t, f.store, link).BytesLoaded == 7 })
+}
+
 // A browser that stopped reading must not hold the engine up.
 func TestSlowBrowserDoesNotBlockTheEngine(t *testing.T) {
 	srv := testjd.New(t)
@@ -1193,5 +1604,45 @@ func TestEngineWith10000Links(t *testing.T) {
 	t.Logf("with engine, mirror and fake: heap in use %.1f MB, from the OS in total %.1f MB", float64(m.HeapAlloc)/(1<<20), float64(m.Sys)/(1<<20))
 	if m.Sys > 150<<20 {
 		t.Errorf("the process holds %d MB", m.Sys>>20)
+	}
+}
+
+// An action on an entry JDownloader removed on its own answers with success
+// and sends no event. Resync is how the API layer makes the mirror converge.
+func TestResyncReloadsAListWithoutAnEvent(t *testing.T) {
+	srv := testjd.New(t)
+	f := start(t, srv, fast()) // StructureCheck is an hour: only Resync can find the change
+	f.waitConn(t, state.ConnConnected)
+
+	_, ids := srv.AddPackage(testjd.Downloads, testjd.Package{Name: "silent"}, testjd.Link{Name: "silent.bin"})
+	time.Sleep(100 * time.Millisecond)
+	if hasLink(f.store, ids[0]) {
+		t.Fatal("the silent link arrived without Resync, the test proves nothing")
+	}
+	f.e.Resync(state.Downloads)
+	eventually(t, "the silent link after Resync", func() bool { return hasLink(f.store, ids[0]) })
+	eventually(t, "structure event", func() bool { return f.inbox.has("structure", `{"list":"downloads"}`) })
+
+	_, lg := srv.AddPackage(testjd.Linkgrabber, testjd.Package{Name: "silent-lg"}, testjd.Link{Name: "silent-lg.bin"})
+	f.e.Resync(state.Linkgrabber)
+	eventually(t, "the silent linkgrabber link after Resync", func() bool {
+		return slices.ContainsFunc(f.store.Snapshot(state.Linkgrabber).LgLinks, func(l state.LgLink) bool { return l.ID == fmt.Sprint(lg[0]) })
+	})
+}
+
+func TestResyncWithoutSessionNeitherBlocksNorPanics(t *testing.T) {
+	e := jdsync.New(nil, state.New(), sse.New(), fast())
+	done := make(chan struct{})
+	go func() {
+		for i := 0; i < 100; i++ {
+			e.Resync(state.Downloads)
+			e.Resync(state.Linkgrabber)
+		}
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Resync blocks while no session runs")
 	}
 }

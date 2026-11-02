@@ -1,6 +1,7 @@
 package sync
 
 import (
+	"context"
 	"errors"
 	"testing"
 	"time"
@@ -114,14 +115,16 @@ func TestClassify(t *testing.T) {
 		want   state.Connection
 		detail string
 	}{
-		"refused, never up":     {conn, false, state.ConnMisconfigured, state.DetailNotReachable(url)},
-		"refused, was up":       {conn, true, state.ConnOffline, state.DetailOffline(url)},
-		"other service":         {other, false, state.ConnMisconfigured, state.DetailOtherService},
-		"other service, was up": {other, true, state.ConnMisconfigured, state.DetailOtherService},
-		"unknown path":          {unknownPath, true, state.ConnMisconfigured, state.DetailOtherService},
-		"no ping":               {errNotJDownloader, false, state.ConnMisconfigured, state.DetailOtherService},
-		"subscription lost":     {errSubscriptionLost, true, state.ConnSyncing, ""},
-		"internal error":        {internal, true, state.ConnOffline, state.DetailFailing(url)},
+		"refused, never up": {conn, false, state.ConnMisconfigured, state.DetailNotReachable(url)},
+		"refused, was up":   {conn, true, state.ConnOffline, state.DetailOffline(url)},
+		// Only a failed ping says another service answers.
+		"no ping":                 {errNotJDownloader, false, state.ConnMisconfigured, state.DetailOtherService},
+		"no ping, was up":         {errNotJDownloader, true, state.ConnMisconfigured, state.DetailOtherService},
+		"bad answer after ping":   {other, true, state.ConnOffline, state.DetailFailing(url)},
+		"unknown path after ping": {unknownPath, true, state.ConnOffline, state.DetailFailing(url)},
+		"no subscription id":      {errNoSubscription, true, state.ConnOffline, state.DetailFailing(url)},
+		"subscription lost":       {errSubscriptionLost, true, state.ConnSyncing, ""},
+		"internal error":          {internal, true, state.ConnOffline, state.DetailFailing(url)},
 	} {
 		t.Run(name, func(t *testing.T) {
 			got, detail := classify(tc.err, tc.wasUp, url)
@@ -129,6 +132,24 @@ func TestClassify(t *testing.T) {
 				t.Errorf("classify = %q, %q", got, detail)
 			}
 		})
+	}
+}
+
+func TestOnlyLostConnectionsEndASession(t *testing.T) {
+	for _, err := range []error{
+		&jd.Error{Type: jd.TypeInvalidResponse, Status: 200},
+		&jd.Error{Type: jd.TypeNotImplemented, Status: 501},
+		&jd.Error{Type: jd.TypeInternal, Status: 500},
+		&jd.Error{Type: jd.TypeBadParameters, Status: 400},
+	} {
+		if isFatal(err) {
+			t.Errorf("%v ends a session", err)
+		}
+	}
+	for _, err := range []error{&jd.Error{Type: jd.TypeConnection}, context.Canceled, context.DeadlineExceeded} {
+		if !isFatal(err) {
+			t.Errorf("%v does not end a session", err)
+		}
 	}
 }
 

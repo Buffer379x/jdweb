@@ -150,6 +150,9 @@ func TestSubnet(t *testing.T) {
 		{"public address", "8.8.8.8", docker, diag.StatusWarn},
 		{"same LAN", "192.168.1.5", lan, diag.StatusWarn},
 		{"same 10.x LAN", "10.0.0.5", []string{"10.0.0.0/24"}, diag.StatusWarn},
+		{"a LAN in the 172.16/12 range", "172.20.1.5", []string{"172.20.1.0/24"}, diag.StatusWarn},
+		{"172.16.0.0/16 is no default of Docker", "172.16.0.9", []string{"172.16.0.0/16"}, diag.StatusWarn},
+		{"a 192.168 LAN of Docker's size elsewhere", "10.1.0.5", []string{"10.1.0.0/20"}, diag.StatusWarn},
 		{"no interface list", "172.18.0.5", nil, diag.StatusWarn},
 		{"IPv6 loopback", "::1", docker, diag.StatusOK},
 		{"IPv6 private", "fd00::5", []string{"fd00::/64"}, diag.StatusWarn},
@@ -166,11 +169,22 @@ func TestSubnet(t *testing.T) {
 			}
 		})
 	}
-	// The two warnings say different things.
-	outside := diag.CheckSubnet(netip.MustParseAddr("172.19.0.5"), prefixes(t, docker...))
-	inLAN := diag.CheckSubnet(netip.MustParseAddr("192.168.1.5"), prefixes(t, lan...))
-	if outside.MessageKey == inLAN.MessageKey {
-		t.Errorf("same key %q", outside.MessageKey)
+	// The warnings say different things.
+	keys := map[string]string{}
+	for ip, own := range map[string][]string{"8.8.8.8": docker, "172.19.0.5": docker, "192.168.1.5": lan} {
+		c := diag.CheckSubnet(netip.MustParseAddr(ip), prefixes(t, own...))
+		if other, dup := keys[c.MessageKey]; dup {
+			t.Errorf("%s and %s share the key %q", ip, other, c.MessageKey)
+		}
+		keys[c.MessageKey] = ip
+	}
+	// A private address outside all subnets may be a LAN, so R1 is named.
+	c := diag.CheckSubnet(netip.MustParseAddr("172.20.9.9"), prefixes(t, lan...))
+	if c.Status != diag.StatusWarn || !strings.Contains(c.Detail, "without a login") {
+		t.Errorf("private outside = %+v", c)
+	}
+	if c := diag.CheckSubnet(netip.MustParseAddr("8.8.8.8"), prefixes(t, lan...)); strings.Contains(c.Detail, "LAN") {
+		t.Errorf("public outside = %+v", c)
 	}
 }
 

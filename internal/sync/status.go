@@ -12,15 +12,20 @@ import (
 var (
 	// errNotJDownloader means something answers that does not behave like JDownloader.
 	errNotJDownloader = errors.New("sync: the answer is not from JDownloader")
-	// errSubscriptionLost means JDownloader forgot the event subscription:
-	// events/listen answered 404 or getsubscriptionstatus subscriptionid -1.
+	// errSubscriptionLost means the event subscription is gone or useless:
+	// events/listen answered 404, getsubscriptionstatus subscriptionid -1, or
+	// the long-poll failed maxListenFailures times in a row.
 	errSubscriptionLost = errors.New("sync: the event subscription is lost")
+	// errNoSubscription means events/subscribe answered without an id.
+	errNoSubscription = errors.New("sync: JDownloader answered a subscribe without an id")
 )
 
-// isFatal reports errors that end a session: nobody answers, or not JDownloader.
-// Everything else is an error of a JDownloader that is there and is only logged.
+// isFatal reports errors that end a running session: nobody answers any more.
+// Whether something answers but is not JDownloader is for the ping to say. After
+// a good ping any other error is a bad answer of a JDownloader that is there: it
+// is logged and tried again, and does not make the browsers see a lost connection.
 func isFatal(err error) bool {
-	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || jd.IsConnection(err) || jd.IsInvalidResponse(err) || jd.IsNotImplemented(err)
+	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || jd.IsConnection(err)
 }
 
 // pingError judges a failed ping. A ping cannot fail in JDownloader, so any
@@ -37,13 +42,13 @@ func pingError(err error, wasUp bool) error {
 }
 
 // classify turns the end of a session into the state the browsers see
-// (Review Focus 3). The detail never holds response text of JDownloader:
-// stacktraces stay in the log.
+// (Review Focus 3). Only a failed ping says another service answers. The detail
+// never holds response text of JDownloader: stacktraces stay in the log.
 func classify(err error, wasUp bool, url string) (state.Connection, string) {
 	switch {
 	case errors.Is(err, errSubscriptionLost):
 		return state.ConnSyncing, ""
-	case errors.Is(err, errNotJDownloader), jd.IsInvalidResponse(err), jd.IsNotImplemented(err):
+	case errors.Is(err, errNotJDownloader):
 		return state.ConnMisconfigured, state.DetailOtherService
 	case jd.IsConnection(err) && !wasUp:
 		return state.ConnMisconfigured, state.DetailNotReachable(url)
@@ -126,6 +131,7 @@ func (s *session) pollStatus(ctx context.Context) error {
 		return fatal
 	}
 	if ok {
+		s.idle = state.NormalizeController(tb.State) == string(jd.ControllerIdle)
 		apply = append(apply, func(st *state.Status) {
 			st.Controller = state.NormalizeController(tb.State)
 			st.Speed = max(tb.Speed, 0)

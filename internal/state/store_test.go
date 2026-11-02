@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"reflect"
 	"runtime"
 	"strings"
 	"sync"
@@ -269,7 +270,6 @@ func TestUnknownIDAsksForOneReload(t *testing.T) {
 
 func TestUnknownEventIsIgnored(t *testing.T) {
 	s := loaded(t)
-	before := s.Snapshot(state.Downloads)
 	for _, ev := range []jd.Event{
 		{Publisher: "something-new", EventID: "HELLO", EventData: json.RawMessage(`{"uuid":1}`)},
 		{Publisher: jd.PublisherDownloads, EventID: "BRAND_NEW"},
@@ -289,13 +289,45 @@ func TestUnknownEventIsIgnored(t *testing.T) {
 	if got := link(t, s, linkA).Speed; got != 5 {
 		t.Errorf("speed = %d", got)
 	}
-	// Broken payloads never panic.
-	for _, data := range []string{`[]`, `"x"`, `12`, `null`, `{`, `{"uuid":"nope"}`, `{"speed":5}`, `{"uuid":1793563980901,"speed":"fast"}`} {
-		s.ApplyEvent(jd.Event{Publisher: jd.PublisherDownloads, EventID: "LINK_UPDATE.speed", EventData: json.RawMessage(data)})
+	// Broken payloads never panic and change nothing.
+	want := s.Snapshot(state.Downloads)
+	for _, data := range []string{`[]`, `"x"`, `12`, `null`, `{`, `{"uuid":"nope"}`, `{"speed":5}`, fmt.Sprintf(`{"uuid":%d,"speed":"fast"}`, linkA)} {
+		eff := s.ApplyEvent(jd.Event{Publisher: jd.PublisherDownloads, EventID: "LINK_UPDATE.speed", EventData: json.RawMessage(data)})
+		if !eff.Unknown || eff.Reload != "" {
+			t.Errorf("%s: effect = %+v", data, eff)
+		}
 	}
-	s.ApplyEvent(jd.Event{Publisher: jd.PublisherDownloads, EventID: "LINK_UPDATE.speed"})
-	if len(before.DlLinks) != 2 {
-		t.Fatal("snapshot changed")
+	if eff := s.ApplyEvent(jd.Event{Publisher: jd.PublisherDownloads, EventID: "LINK_UPDATE.speed"}); !eff.Unknown {
+		t.Errorf("no payload: effect = %+v", eff)
+	}
+	if got := s.Snapshot(state.Downloads); !reflect.DeepEqual(got, want) {
+		t.Errorf("mirror changed:\n%+v\nwant\n%+v", got, want)
+	}
+}
+
+// A wrongly typed value costs that field only, and is no zero for the field the
+// event names.
+func TestWrongTypeKeepsTheRestOfTheDelta(t *testing.T) {
+	s := loaded(t)
+	eff := s.ApplyEvent(dlEvent("LINK_UPDATE.speed", fmt.Sprintf(`{"speed":"fast","bytesLoaded":77,"name":"new.bin","uuid":%d}`, linkA)))
+	if !eff.Unknown || eff.Reload != "" {
+		t.Errorf("effect = %+v", eff)
+	}
+	l := link(t, s, linkA)
+	if l.BytesLoaded != 77 || l.Name != "new.bin" {
+		t.Errorf("the good fields were dropped: %+v", l)
+	}
+	if l.Speed != 50 {
+		t.Errorf("the named field became %d", l.Speed)
+	}
+	// The field order does not matter, nor a second bad field.
+	s.ApplyEvent(dlEvent("LINK_UPDATE.status", fmt.Sprintf(`{"uuid":%d,"enabled":"yes","finished":[1],"comment":"c"}`, linkA)))
+	if l := link(t, s, linkA); l.Comment != "c" || !l.Enabled || l.Finished {
+		t.Errorf("link = %+v", l)
+	}
+	// Without a usable uuid nothing can be applied.
+	if eff := s.ApplyEvent(dlEvent("LINK_UPDATE.name", `{"uuid":"nope","name":"x"}`)); !eff.Unknown || eff.Reload != "" {
+		t.Errorf("effect = %+v", eff)
 	}
 }
 
@@ -783,6 +815,38 @@ func TestMarkStale(t *testing.T) {
 	s.ReplaceLinkgrabber(nil, nil)
 	if s.Stale() {
 		t.Error("still stale after both lists were replaced")
+	}
+}
+
+func TestMarkStaleClearsRunningStatusText(t *testing.T) {
+	s := state.New()
+	s.ReplaceDownloads(
+		[]jd.DownloadPackage{
+			{UUID: 1, Running: true, Enabled: true, Status: "Running"},
+			{UUID: 2, Finished: true, Enabled: true, Status: "Finished"},
+		},
+		[]jd.DownloadLink{
+			{UUID: 10, PackageUUID: 1, Running: true, Enabled: true, Status: "Download"},
+			{UUID: 11, PackageUUID: 1, Running: true, Enabled: true, Status: "Starting..."},
+			{UUID: 12, PackageUUID: 2, Finished: true, Enabled: true, Status: "Finished"},
+			{UUID: 13, PackageUUID: 1, Skipped: true, Enabled: true, Status: "Skipped - Disk is full"},
+			{UUID: 14, PackageUUID: 1, Running: true, Finished: true, Enabled: true, Status: "Extracting"},
+		},
+	)
+	s.Drain()
+	s.MarkStale()
+	snap := s.Snapshot(state.Downloads)
+	want := []string{"", "", "Finished", "Skipped - Disk is full", "Extracting"}
+	for i, l := range snap.DlLinks {
+		if l.Status != want[i] {
+			t.Errorf("link %s: status = %q, want %q", l.ID, l.Status, want[i])
+		}
+	}
+	if snap.DlPackages[0].Status != "" || snap.DlPackages[1].Status != "Finished" {
+		t.Errorf("packages = %+v", snap.DlPackages)
+	}
+	if f := s.Drain()[0].Links["10"]; f["status"] != "" {
+		t.Errorf("patch = %+v", f)
 	}
 }
 

@@ -155,6 +155,7 @@ type Engine struct {
 	log   *slog.Logger
 
 	attach chan struct{} // a browser count crossed zero
+	resync chan state.List
 	bg     sync.WaitGroup
 
 	mu       sync.Mutex
@@ -174,7 +175,7 @@ type Engine struct {
 // then waits for SetURL and reports misconfigured.
 func New(client *jd.Client, store *state.Store, hub *sse.Hub, cfg Config) *Engine {
 	e := &Engine{
-		store: store, hub: hub, cfg: cfg.withDefaults(), attach: make(chan struct{}, 1),
+		store: store, hub: hub, cfg: cfg.withDefaults(), attach: make(chan struct{}, 1), resync: make(chan state.List, 8),
 		client: client, clearCh: make(chan struct{}), unknown: map[string]bool{},
 	}
 	e.log = e.cfg.Logger
@@ -227,6 +228,18 @@ func (e *Engine) Detach() {
 	e.mu.Unlock()
 	if cross {
 		e.signalAttach()
+	}
+}
+
+// Resync asks for a reload of one list soon, subject to the usual debounce. The
+// API layer calls it after an action: when JDownloader has dropped an entry on
+// its own it answers an action on it with success and sends no event, and
+// the mirror would otherwise keep the entry until the next safety check. It
+// never blocks and does nothing while no session runs.
+func (e *Engine) Resync(list state.List) {
+	select {
+	case e.resync <- list:
+	default: // a reload is queued anyway
 	}
 }
 
@@ -465,20 +478,20 @@ func (e *Engine) session(parent context.Context, c *jd.Client, gen uint64) (res 
 	}
 	sub, err := c.Subscribe(ctx, jd.Publishers())
 	if err != nil {
-		return sessionResult{err: err}
+		return sessionResult{err: e.judge(ctx, c, err)}
 	}
 	if sub.ID <= 0 {
-		return sessionResult{err: errNotJDownloader}
+		return sessionResult{err: e.judge(ctx, c, errNoSubscription)}
 	}
 	defer func() { e.leave(parent, c, sub.ID, res.err) }()
 
 	s := &session{
-		e: e, c: c, gen: gen, sub: sub.ID,
+		e: e, c: c, gen: gen, sub: sub.ID, catchUp: make(chan struct{}, 1),
 		dl: debouncer{quiet: e.cfg.Debounce, gap: e.cfg.MinReloadGap},
 		lg: debouncer{quiet: e.cfg.Debounce, gap: e.cfg.MinReloadGap},
 	}
 	if err := s.load(ctx); err != nil {
-		return sessionResult{err: err}
+		return sessionResult{err: e.judge(ctx, c, err)}
 	}
 	connectedAt := time.Now()
 	e.update(gen, func(st *state.Status) { st.Connection, st.ConnectionDetail = state.ConnConnected, "" })
@@ -496,6 +509,23 @@ func (e *Engine) session(parent context.Context, c *jd.Client, gen uint64) (res 
 	defer cancel()
 
 	return sessionResult{err: s.follow(ctx, events, failed), connectedAt: connectedAt}
+}
+
+// judge decides what a failure between the ping and connected means. One bad
+// answer proves nothing about who is listening, so it asks again: as long as the
+// ping still answers this is a JDownloader with a problem, not another service.
+func (e *Engine) judge(ctx context.Context, c *jd.Client, err error) error {
+	if isFatal(err) {
+		return err
+	}
+	ok, pingErr := c.Ping(ctx)
+	switch {
+	case pingErr != nil:
+		return pingError(pingErr, true)
+	case !ok:
+		return errNotJDownloader
+	}
+	return err
 }
 
 // leave says goodbye to a JDownloader that still has our subscription, in the
@@ -532,21 +562,25 @@ func (e *Engine) reach(ctx context.Context, c *jd.Client, gen uint64) error {
 	e.mu.Unlock()
 	e.update(gen, func(st *state.Status) { st.Connection, st.ConnectionDetail = state.ConnSyncing, "" })
 
+	// A failure here costs nothing but these two values, the known ones stay.
 	rev, err := c.CoreRevision(ctx)
-	if err != nil {
-		if isFatal(err) {
-			return err
-		}
+	switch {
+	case err == nil:
+		e.update(gen, func(st *state.Status) { st.JD.Revision = rev })
+	case isFatal(err):
+		return err
+	default:
 		e.log.Warn("cannot read the JDownloader revision", "err", err)
 	}
 	info, err := c.SystemInfos(ctx)
-	if err != nil {
-		if isFatal(err) {
-			return err
-		}
+	switch {
+	case err == nil:
+		e.update(gen, func(st *state.Status) { st.JD.Docker = info.Docker })
+	case isFatal(err):
+		return err
+	default:
 		e.log.Warn("cannot read the JDownloader system infos", "err", err)
 	}
-	e.update(gen, func(st *state.Status) { st.JD.Revision, st.JD.Docker = rev, info.Docker })
 	return nil
 }
 
@@ -554,323 +588,6 @@ func (e *Engine) wasUp() bool {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	return e.everUp
-}
-
-// session holds what one connection needs. Only the session loop touches it,
-// except for the fields listen reads, which never change.
-type session struct {
-	e   *Engine
-	c   *jd.Client
-	gen uint64
-	sub int64
-
-	dl, lg   debouncer
-	counters struct{ dl, lg int64 }
-	fast     bool // the browser state the interval and the poll rate are set for
-	lastPoll time.Time
-	pollDue  time.Time
-	poll     *time.Timer
-	reload   *time.Timer
-}
-
-// load does what comes before connected: the status event interval, both lists,
-// the status. Events that happen meanwhile wait in the subscription and are
-// applied afterwards.
-func (s *session) load(ctx context.Context) error {
-	s.fast = s.e.attached()
-	if err := s.setInterval(ctx); err != nil {
-		return err
-	}
-	now := time.Now()
-	if _, err := s.reloadList(ctx, state.Downloads); err != nil {
-		return err
-	}
-	if _, err := s.reloadList(ctx, state.Linkgrabber); err != nil {
-		return err
-	}
-	s.dl.ran(now)
-	s.lg.ran(now)
-	// Whatever browsers hold now is out of date, changed or not.
-	s.e.store.Drain()
-	s.e.publishStructure()
-	s.e.refreshTotals(s.gen)
-	if err := s.pollStatus(ctx); err != nil {
-		return err
-	}
-	return nil
-}
-
-func (s *session) setInterval(ctx context.Context) error {
-	d := s.e.cfg.EventsDetached
-	if s.fast {
-		d = s.e.cfg.EventsAttached
-	}
-	if err := s.c.SetStatusEventInterval(ctx, s.sub, d.Milliseconds()); err != nil {
-		if isFatal(err) {
-			return err
-		}
-		s.e.log.Warn("cannot set the status event interval", "err", err)
-	}
-	return nil
-}
-
-func (s *session) pollInterval() time.Duration {
-	if s.fast {
-		return s.e.cfg.PollAttached
-	}
-	return s.e.cfg.PollDetached
-}
-
-// reloadList loads one list. The counter is read first: a change during the
-// load then shows at the next check instead of going unnoticed. It only counts
-// as seen once the load worked, so a failed load is tried again by the next check.
-func (s *session) reloadList(ctx context.Context, list state.List) (structure bool, err error) {
-	if list == state.Downloads {
-		counter, _, err := s.c.DownloadsStructureChanged(ctx, s.counters.dl)
-		if err != nil {
-			return false, err
-		}
-		pkgs, err := s.c.DownloadPackages(ctx, jd.AllDownloadPackageFields())
-		if err != nil {
-			return false, err
-		}
-		links, err := s.c.DownloadLinks(ctx, jd.AllDownloadLinkFields())
-		if err != nil {
-			return false, err
-		}
-		s.counters.dl = counter
-		return s.e.store.ReplaceDownloads(pkgs, links), nil
-	}
-	counter, _, err := s.c.GrabberStructureChanged(ctx, s.counters.lg)
-	if err != nil {
-		return false, err
-	}
-	pkgs, err := s.c.GrabberPackages(ctx, jd.AllGrabberPackageFields())
-	if err != nil {
-		return false, err
-	}
-	links, err := s.c.GrabberLinks(ctx, jd.AllGrabberLinkFields())
-	if err != nil {
-		return false, err
-	}
-	s.counters.lg = counter
-	return s.e.store.ReplaceLinkgrabber(pkgs, links), nil
-}
-
-// listen is the long-poll. It hands batches to the session loop and blocks while
-// the loop is busy, so events keep their order and wait in JDownloader's queue.
-func (s *session) listen(ctx context.Context, events chan<- []jd.Event, failed chan<- error) {
-	for {
-		batch, err := s.c.Listen(ctx, s.sub)
-		switch {
-		case ctx.Err() != nil:
-			return
-		case jd.IsNotFound(err):
-			failed <- errSubscriptionLost
-			return
-		case err != nil && isFatal(err):
-			failed <- err
-			return
-		case err != nil:
-			s.e.log.Warn("the JDownloader event poll failed, trying again", "err", err)
-			select {
-			case <-time.After(s.e.cfg.ListenRetry):
-			case <-ctx.Done():
-				return
-			}
-			continue
-		}
-		if len(batch) == 0 {
-			continue
-		}
-		select {
-		case events <- batch:
-		case <-ctx.Done():
-			return
-		}
-	}
-}
-
-// follow is the session loop. It returns why the session ended.
-func (s *session) follow(ctx context.Context, events <-chan []jd.Event, failed <-chan error) error {
-	e := s.e
-	patches := time.NewTicker(e.cfg.PatchInterval)
-	defer patches.Stop()
-	safety := time.NewTicker(e.cfg.StructureCheck)
-	defer safety.Stop()
-	s.poll = time.NewTimer(s.pollInterval())
-	defer s.poll.Stop()
-	s.pollDue = time.Now().Add(s.pollInterval())
-	s.lastPoll = time.Now()
-	s.reload = time.NewTimer(time.Hour)
-	s.reload.Stop()
-	defer s.reload.Stop()
-
-	for {
-		var err error
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case err = <-failed:
-		case batch := <-events:
-			s.apply(batch)
-		case <-patches.C:
-			e.flush(s.gen)
-		case <-s.reload.C:
-			err = s.reloadDue(ctx)
-		case <-s.poll.C:
-			err = s.pollStatus(ctx)
-			s.armPoll(time.Now().Add(s.pollInterval()), true)
-		case <-safety.C:
-			err = s.safetyNet(ctx)
-		case <-e.attach:
-			err = s.browsersChanged(ctx)
-		}
-		if err != nil {
-			return err
-		}
-	}
-}
-
-func (s *session) apply(batch []jd.Event) {
-	now := time.Now()
-	wantPoll := false
-	for _, ev := range batch {
-		eff := s.e.store.ApplyEvent(ev)
-		switch eff.Reload {
-		case state.Downloads:
-			s.dl.note(now)
-		case state.Linkgrabber:
-			s.lg.note(now)
-		}
-		wantPoll = wantPoll || eff.Poll
-		if eff.Unknown {
-			s.e.logUnknown(ev)
-		}
-	}
-	s.armReload()
-	if wantPoll {
-		due := now.Add(pollSoon)
-		if earliest := s.lastPoll.Add(pollSoon); due.Before(earliest) {
-			due = earliest
-		}
-		s.armPoll(due, false)
-	}
-}
-
-// armPoll sets the next poll. Unless force is set it only ever brings it forward.
-func (s *session) armPoll(due time.Time, force bool) {
-	if !force && !due.Before(s.pollDue) {
-		return
-	}
-	s.pollDue = due
-	s.poll.Reset(time.Until(due))
-}
-
-func (s *session) armReload() {
-	next, ok := s.dl.due()
-	if t, lgOK := s.lg.due(); lgOK && (!ok || t.Before(next)) {
-		next, ok = t, true
-	}
-	if !ok {
-		s.reload.Stop()
-		return
-	}
-	s.reload.Reset(time.Until(next))
-}
-
-// reloadDue loads the lists whose time has come. An error of JDownloader is
-// logged and the reload tried again later; only a connection problem ends the session.
-func (s *session) reloadDue(ctx context.Context) error {
-	now := time.Now()
-	for _, r := range []struct {
-		list state.List
-		d    *debouncer
-	}{{state.Downloads, &s.dl}, {state.Linkgrabber, &s.lg}} {
-		if t, ok := r.d.due(); !ok || t.After(now) {
-			continue
-		}
-		r.d.ran(now)
-		if err := s.reloadAndAnnounce(ctx, r.list); err != nil {
-			if isFatal(err) {
-				return err
-			}
-			s.e.log.Warn("cannot reload a list, trying again", "list", r.list, "err", err)
-			r.d.note(now)
-		}
-	}
-	s.armReload()
-	return nil
-}
-
-func (s *session) reloadAndAnnounce(ctx context.Context, list state.List) error {
-	structure, err := s.reloadList(ctx, list)
-	if err != nil {
-		return err
-	}
-	if structure {
-		s.e.publish("structure", structurePayload{list})
-	}
-	s.e.refreshTotals(s.gen)
-	return nil
-}
-
-// safetyNet catches what events missed: a subscription JDownloader forgot, and
-// structure changes nobody announced (Concept 5.3, step 7).
-func (s *session) safetyNet(ctx context.Context) error {
-	st, err := s.c.SubscriptionStatus(ctx, s.sub)
-	switch {
-	case err != nil && isFatal(err):
-		return err
-	case err != nil:
-		s.e.log.Warn("cannot read the subscription status", "err", err)
-	case !st.Exists(s.sub):
-		return errSubscriptionLost
-	}
-
-	_, dlChanged, err := s.c.DownloadsStructureChanged(ctx, s.counters.dl)
-	if err == nil && dlChanged {
-		s.dl.ran(time.Now())
-		err = s.reloadAndAnnounce(ctx, state.Downloads)
-	}
-	if err != nil && isFatal(err) {
-		return err
-	}
-	if err != nil {
-		s.e.log.Warn("the download list check failed", "err", err)
-	}
-	_, lgChanged, err := s.c.GrabberStructureChanged(ctx, s.counters.lg)
-	if err == nil && lgChanged {
-		s.lg.ran(time.Now())
-		err = s.reloadAndAnnounce(ctx, state.Linkgrabber)
-	}
-	if err != nil && isFatal(err) {
-		return err
-	}
-	if err != nil {
-		s.e.log.Warn("the linkgrabber check failed", "err", err)
-	}
-	s.armReload()
-	return nil
-}
-
-// browsersChanged follows a browser count that crossed zero.
-func (s *session) browsersChanged(ctx context.Context) error {
-	fast := s.e.attached()
-	if fast == s.fast {
-		return nil
-	}
-	s.fast = fast
-	if err := s.setInterval(ctx); err != nil {
-		return err
-	}
-	if fast {
-		err := s.pollStatus(ctx)
-		s.armPoll(time.Now().Add(s.pollInterval()), true)
-		return err
-	}
-	s.armPoll(time.Now().Add(s.pollInterval()), true)
-	return nil
 }
 
 // maxLoggedUnknown caps the memory of what was logged already.

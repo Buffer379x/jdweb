@@ -122,8 +122,9 @@ func checkHost(ctx context.Context, base string, own []netip.Prefix) Check {
 
 // CheckSubnet judges the address of JDownloader. It warns when the address lies
 // outside all own subnets (T-NET-03: it may be unreachable, and the path leaves
-// this machine), and when it is in a private LAN range that is not an internal
-// Docker network: then every device in that LAN reaches the API (R1, T-NET-02).
+// this machine), and when it is in a private range on an own subnet that is not
+// an internal Docker network: then every device in that LAN reaches the API
+// (R1, T-NET-02). A private address outside all own subnets gets both hints.
 func CheckSubnet(ip netip.Addr, own []netip.Prefix) Check {
 	ip = ip.Unmap()
 	if ip.IsLoopback() {
@@ -137,6 +138,11 @@ func CheckSubnet(ip netip.Addr, own []netip.Prefix) Check {
 		}
 	}
 	switch {
+	case !found && ip.IsPrivate():
+		// From here a real LAN and another Docker network look the same, so the
+		// hint names both.
+		return Check{idSubnet, StatusWarn, "diag.jd-outside-subnet.outside-private",
+			ip.String() + " is outside the subnets of JDWeb. If it is in a private LAN, every device there reaches the JDownloader API without a login"}
 	case !found:
 		return Check{idSubnet, StatusWarn, "diag.jd-outside-subnet.outside",
 			ip.String() + " is outside the subnets of JDWeb"}
@@ -149,13 +155,18 @@ func CheckSubnet(ip netip.Addr, own []netip.Prefix) Check {
 
 var (
 	dockerBridges = netip.MustParsePrefix("172.16.0.0/12")
+	notADefault   = netip.MustParsePrefix("172.16.0.0/16")
 	dockerSpare   = netip.MustParsePrefix("192.168.0.0/16")
 )
 
-// dockerInternal reports whether a subnet looks like a network Docker made: its
-// default address pools are 172.17-31.0.0/16 and then /20 networks of 192.168.0.0/16.
+// dockerInternal reports whether a subnet is one Docker hands out by default:
+// the /16 networks 172.17 to 172.31, then /20 networks of 192.168.0.0/16. Any
+// other size in those ranges, like a 172.16.5.0/24, is taken for a real LAN. A
+// network made with a custom --subnet gets the LAN hint too, which errs on the
+// side of saying too much.
 func dockerInternal(p netip.Prefix) bool {
-	return dockerBridges.Contains(p.Addr()) || (dockerSpare.Contains(p.Addr()) && p.Bits() == 20)
+	a := p.Addr()
+	return (dockerBridges.Contains(a) && !notADefault.Contains(a) && p.Bits() == 16) || (dockerSpare.Contains(a) && p.Bits() == 20)
 }
 
 // OwnPrefixes returns the subnets of the interfaces of this machine.
