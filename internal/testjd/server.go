@@ -72,6 +72,7 @@ type Server struct {
 	dialogs    []Dialog
 	revision   int64
 	notDocker  bool
+	archives   []Archive
 }
 
 type toggles struct {

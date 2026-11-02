@@ -295,6 +295,15 @@ func TestCleanupAllEnumValuesReachJDownloader(t *testing.T) {
 	}
 }
 
+// Only ALL goes without ids.
+func TestCleanupAllNeedsNoIDs(t *testing.T) {
+	e := newEnv(t)
+	e.expect(e.post("/api/v1/downloads/actions/cleanup", map[string]any{"action": "DELETE_FINISHED", "mode": "REMOVE_LINKS_ONLY", "selection": "ALL"}), 204)
+	if got := argsJSON(e.lastCall("/downloadsV2/cleanup")); got != `[[],[],"DELETE_FINISHED","REMOVE_LINKS_ONLY","ALL"]` {
+		t.Errorf("params = %s", got)
+	}
+}
+
 // Review Focus 2: an action on an entry JDownloader dropped answers with
 // success, and the list is reloaded so the browser converges.
 func TestActionOnVanishedEntryRefreshesTheList(t *testing.T) {

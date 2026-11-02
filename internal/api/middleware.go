@@ -89,6 +89,12 @@ func (s *Server) recoverPanics(next http.Handler) http.Handler {
 	})
 }
 
+// Time allowed for a big upload and for the answer after it.
+var (
+	bigReadWindow  = 2 * time.Minute
+	bigWriteWindow = 2 * time.Minute
+)
+
 // bodyLimit caps the request body. Reading more fails with *http.MaxBytesError.
 func bodyLimit(n int64, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -100,9 +106,15 @@ func bodyLimit(n int64, next http.Handler) http.Handler {
 			r.Body = http.MaxBytesReader(w, r.Body, n)
 		}
 		if n > defaultBodyLimit {
-			// Uploads of containers and link lists may need longer than the
-			// server's read timeout.
-			_ = http.NewResponseController(w).SetReadDeadline(time.Now().Add(2 * time.Minute))
+			// Big uploads may need longer than the server's read timeout, and the
+			// write deadline of the server starts with the request: a slow upload
+			// would leave no time to answer, the browser would not see the result
+			// and would send it again (links added twice). So both move: the
+			// body gets two minutes, the answer another two (JDownloader may
+			// take a minute to collect).
+			rc := http.NewResponseController(w)
+			_ = rc.SetReadDeadline(time.Now().Add(bigReadWindow))
+			_ = rc.SetWriteDeadline(time.Now().Add(bigReadWindow + bigWriteWindow))
 		}
 		next.ServeHTTP(w, r)
 	})

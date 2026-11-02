@@ -18,6 +18,9 @@ func dropPrivileges(dataDir string, uid, gid int, log *slog.Logger) error {
 	if os.Getuid() != 0 {
 		return nil
 	}
+	if err := checkDataDir(dataDir); err != nil {
+		return err // never chown "/" or an empty path
+	}
 	if uid == 0 || gid == 0 {
 		return fmt.Errorf("JDWeb is running as root, so PUID and PGID must name the user to run as, and not be 0")
 	}

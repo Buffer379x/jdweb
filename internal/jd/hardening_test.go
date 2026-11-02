@@ -160,6 +160,9 @@ func TestPasswordsStayOutOfErrors(t *testing.T) {
 			return c.SetArchiveSettings(ctx, jd.ArchiveSettings{ArchiveID: "a", FinalPassword: secret, Passwords: []string{secret}})
 		}},
 		"ConfigSet": {"/config/set", func(c *jd.Client) error { return c.ConfigSet(ctx, "i", "", "ProxyPassword", secret) }},
+		"DialogAnswer": {"/dialogs/answer", func(c *jd.Client) error {
+			return c.DialogAnswer(ctx, 1, map[string]any{"password": secret})
+		}},
 		"PluginSet": {"/plugins/set", func(c *jd.Client) error { return c.PluginSet(ctx, "i", "p", "Password", secret) }},
 	}
 	for name, tc := range calls {
@@ -198,6 +201,21 @@ func TestPasswordsStayOutOfErrors(t *testing.T) {
 			if e.Type != jd.TypeRedacted || e.Status != status {
 				t.Errorf("Error = %+v", e)
 			}
+		}
+	})
+	t.Run("dialog errors that name only an id keep their type", func(t *testing.T) {
+		for _, typ := range []string{"Answer Dialog 1793566158196 first", "Invalid ID: 12"} {
+			s := newStub(t, map[string]reply{"/dialogs/answer": {400, []byte(`{"src":"DEVICE","data":null,"type":"` + typ + `"}`)}})
+			var e *jd.Error
+			if err := s.client().DialogAnswer(ctx, 1, map[string]any{"password": secret}); !errors.As(err, &e) || e.Type != typ {
+				t.Errorf("%q: %v", typ, err)
+			}
+		}
+		// ...but not when the type carries other text, such as the answer.
+		s := newStub(t, map[string]reply{"/dialogs/answer": {400, []byte(`{"src":"DEVICE","data":null,"type":"Invalid ID: ` + secret + `"}`)}})
+		var e *jd.Error
+		if err := s.client().DialogAnswer(ctx, 1, nil); !errors.As(err, &e) || e.Type != jd.TypeRedacted {
+			t.Errorf("echoed answer: %v", err)
 		}
 	})
 	t.Run("other calls keep the text for diagnosis", func(t *testing.T) {

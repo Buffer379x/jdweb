@@ -48,7 +48,7 @@ func init() {
 		register(p, func(_ context.Context, s *Server, a args) (any, *apiErr) { return "", nil })
 	}
 	for _, p := range []string{"/extensions/install", "/extensions/setEnabled", "/plugins/set", "/plugins/reset",
-		"/extraction/setArchiveSettings", "/extraction/cancelExtraction"} {
+		"/extraction/cancelExtraction"} {
 		register(p, func(_ context.Context, s *Server, a args) (any, *apiErr) { return true, nil })
 	}
 	for _, p := range []string{"/linkgrabberv2/setVariant", "/linkgrabberv2/addVariantCopy"} {
@@ -58,8 +58,51 @@ func init() {
 	register("/extraction/startExtractionNow", func(_ context.Context, s *Server, a args) (any, *apiErr) {
 		return map[string]bool{}, nil
 	})
-	register("/extraction/getArchiveInfo", func(_ context.Context, s *Server, a args) (any, *apiErr) { return []any{}, nil })
-	register("/extraction/getArchiveSettings", func(_ context.Context, s *Server, a args) (any, *apiErr) { return []any{}, nil })
+	register("/extraction/getArchiveInfo", func(_ context.Context, s *Server, a args) (any, *apiErr) {
+		out := []any{}
+		for _, ar := range s.archives {
+			out = append(out, map[string]any{"archiveId": ar.ID, "archiveName": ar.ID, "type": "ZIP_SINGLE", "controllerId": -1, "controllerStatus": "NA"})
+		}
+		return out, nil
+	})
+	register("/extraction/getArchiveSettings", func(_ context.Context, s *Server, a args) (any, *apiErr) {
+		var ids []string
+		if err := a.scan(&ids); err != nil {
+			return nil, err
+		}
+		out := []any{}
+		for _, ar := range s.archives {
+			for _, id := range ids {
+				if id == ar.ID {
+					out = append(out, ar.settings())
+				}
+			}
+		}
+		return out, nil
+	})
+	register("/extraction/setArchiveSettings", func(_ context.Context, s *Server, a args) (any, *apiErr) {
+		var id string
+		var v struct {
+			ExtractPath   string   `json:"extractPath"`
+			FinalPassword string   `json:"finalPassword"`
+			Passwords     []string `json:"passwords"`
+		}
+		if err := a.scan(&id, &v); err != nil {
+			return nil, err
+		}
+		for i := range s.archives {
+			if s.archives[i].ID == id {
+				if v.ExtractPath != "" {
+					s.archives[i].ExtractPath = v.ExtractPath
+				}
+				if v.FinalPassword != "" {
+					s.archives[i].FinalPassword = v.FinalPassword
+				}
+				s.archives[i].Passwords = v.Passwords
+			}
+		}
+		return true, nil
+	})
 
 	// Lists that are empty in the fake.
 	for _, p := range []string{"/accountsV2/listAccounts", "/accountsV2/listBasicAuth", "/accountsV2/listPremiumHoster",
@@ -628,6 +671,33 @@ func registerConfig() {
 		}
 		return out, nil
 	})
+}
+
+// Archive is an archive known to the fake, with its settings.
+type Archive struct {
+	ID            string
+	ExtractPath   string
+	FinalPassword string
+	Passwords     []string
+}
+
+func (a Archive) settings() map[string]any {
+	return map[string]any{"archiveId": a.ID, "extractPath": a.ExtractPath, "finalPassword": a.FinalPassword, "passwords": a.Passwords}
+}
+
+// AddArchive adds an archive to the fake: extraction/getArchiveInfo lists all
+// of them, whatever ids are asked for.
+func (s *Server) AddArchive(a Archive) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.archives = append(s.archives, a)
+}
+
+// Archives returns the archives with the settings that were saved.
+func (s *Server) Archives() []Archive {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]Archive(nil), s.archives...)
 }
 
 // SetConfig adds or replaces a setting of the fake, and makes it the default

@@ -16,6 +16,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -179,7 +180,7 @@ var secretPaths = map[string]bool{
 	pathAccAdd: true, pathAccSetLogin: true, pathBasicAdd: true, pathBasicUpdate: true,
 	pathExtPassword: true, pathExtSetSet: true, pathLGAddLinks: true,
 	dlNamespace + "/setDownloadPassword": true, lgNamespace + "/setDownloadPassword": true,
-	pathConfigSet: true, pathPluginSet: true,
+	pathConfigSet: true, pathPluginSet: true, pathDialogAns: true, // a dialog can ask for a password
 }
 
 // knownTypes are the error types that carry no echoed input.
@@ -187,6 +188,11 @@ var knownTypes = map[string]bool{
 	TypeBadParameters: true, TypeAuthFailed: true, TypeFileNotFound: true, TypeNotAvailable: true,
 	TypeInternal: true, TypeNotImplemented: true, TypeInvalidResponse: true, TypeConnection: true, TypeBadRequest: true,
 }
+
+// dialogErrorType are the two errors of dialogs/answer that name only a dialog
+// id (see Dialogs): the API layer needs them to tell "answer the first dialog
+// first" from "that dialog is gone". An id is no secret.
+var dialogErrorType = regexp.MustCompile(`^(Answer Dialog \d+ first|Invalid ID: \d+)$`)
 
 // TypeRedacted replaces an error type of JDownloader that is not a known
 // constant when the call carried a secret: JDownloader puts messages such as
@@ -203,7 +209,7 @@ func redact(path string, err error) error {
 	if e.Raw != "" {
 		e.Raw = "(response text left out, the call carried a secret)"
 	}
-	if !knownTypes[e.Type] {
+	if !knownTypes[e.Type] && !(path == pathDialogAns && dialogErrorType.MatchString(e.Type)) {
 		e.Type = TypeRedacted
 	}
 	return err

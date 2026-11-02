@@ -25,7 +25,8 @@ import (
 // Body limits: JSON routes take 1 MiB, adding links and containers 64 MiB.
 const (
 	defaultBodyLimit = 1 << 20
-	bigBodyLimit     = 64 << 20
+	addLinksLimit    = 8 << 20
+	containerLimit   = 64 << 20
 	prefsLimit       = 64 << 10
 )
 
@@ -77,6 +78,12 @@ type Server struct {
 	icons   *iconCache
 	done    chan struct{}
 	endOnce sync.Once
+
+	revMu sync.Mutex
+	revCh chan struct{} // closed when sessions were revoked, then replaced
+
+	// setURL switches the engine; tests replace it.
+	setURL func(string) error
 }
 
 // Route is one registered API route.
@@ -97,7 +104,8 @@ func New(o Options) *Server {
 	s := &Server{
 		engine: o.Engine, mirror: o.Store, hub: o.Hub, auth: o.Auth, db: o.DB, log: o.Logger, version: o.Version,
 		static: o.Static, own: o.OwnPrefixes, source: o.URLSource, keep: o.Keepalive,
-		icons: newIconCache(iconCacheEntries), done: make(chan struct{}),
+		icons: newIconCache(iconCacheEntries, iconCacheBytes), done: make(chan struct{}), revCh: make(chan struct{}),
+		setURL: o.Engine.SetURL,
 	}
 	if s.log == nil {
 		s.log = slog.Default()
@@ -118,6 +126,22 @@ func (s *Server) Routes() []Route { return append([]Route(nil), s.routes...) }
 // CloseStreams ends all open event streams and refuses new ones. Call it when
 // the HTTP server shuts down, otherwise a stream keeps Shutdown waiting.
 func (s *Server) CloseStreams() { s.endOnce.Do(func() { close(s.done) }) }
+
+// sessionsChanged tells the open event streams that sessions were revoked
+// (logout, sign out others, password change, reset). Each stream then checks
+// its own session and ends if it is gone.
+func (s *Server) sessionsChanged() {
+	s.revMu.Lock()
+	close(s.revCh)
+	s.revCh = make(chan struct{})
+	s.revMu.Unlock()
+}
+
+func (s *Server) revoked() <-chan struct{} {
+	s.revMu.Lock()
+	defer s.revMu.Unlock()
+	return s.revCh
+}
 
 // Handler returns the handler for the whole site.
 func (s *Server) Handler() http.Handler {
@@ -171,7 +195,7 @@ func (s *Server) HTTPServer(addr string) *http.Server {
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      60 * time.Second,
-		IdleTimeout:       120 * time.Second,
+		IdleTimeout:       60 * time.Second,
 		MaxHeaderBytes:    64 << 10,
 	}
 }

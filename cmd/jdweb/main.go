@@ -23,6 +23,7 @@ import (
 	"github.com/Buffer379x/jdweb/internal/auth"
 	"github.com/Buffer379x/jdweb/internal/diag"
 	"github.com/Buffer379x/jdweb/internal/jd"
+	"github.com/Buffer379x/jdweb/internal/logmask"
 	"github.com/Buffer379x/jdweb/internal/sse"
 	"github.com/Buffer379x/jdweb/internal/state"
 	"github.com/Buffer379x/jdweb/internal/store"
@@ -80,8 +81,30 @@ func run(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
-func newLogger(c config) *slog.Logger {
-	return slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: c.LogLevel}))
+// newLogger writes JSON lines. Attributes that look like secrets are masked as
+// a safety net, see logmask.
+func newLogger(c config, w io.Writer) *slog.Logger {
+	return slog.New(slog.NewJSONHandler(w, &slog.HandlerOptions{Level: c.LogLevel, ReplaceAttr: logmask.ReplaceAttr}))
+}
+
+// checkDataDir refuses a data directory that must never be handed to
+// PUID:PGID: the empty path and the root of the file system, also through a
+// symbolic link. A typo in JDWEB_DATA_DIR must not chown a machine.
+func checkDataDir(dir string) error {
+	if strings.TrimSpace(dir) == "" {
+		return errors.New("JDWEB_DATA_DIR is empty")
+	}
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		return fmt.Errorf("JDWEB_DATA_DIR %q: %w", dir, err)
+	}
+	if resolved, err := filepath.EvalSymlinks(abs); err == nil {
+		abs = resolved
+	}
+	if abs == string(filepath.Separator) || filepath.Dir(abs) == abs {
+		return fmt.Errorf("JDWEB_DATA_DIR %q is the root of the file system. Use a folder of its own, for example /data", dir)
+	}
+	return nil
 }
 
 // writableHint is the one-line message for a data directory that cannot be
@@ -116,6 +139,9 @@ func ensureWritable(dir string, uid, gid int) error {
 // openData prepares the data directory and opens the database: drop root,
 // check the folder, migrate. Each failure is a message, not a stack trace.
 func openData(c config, log *slog.Logger) (*store.DB, error) {
+	if err := checkDataDir(c.DataDir); err != nil {
+		return nil, err
+	}
 	if err := dropPrivileges(c.DataDir, c.PUID, c.PGID, log); err != nil {
 		return nil, err
 	}
@@ -155,7 +181,7 @@ func serve() error {
 	if err != nil {
 		return err
 	}
-	log := newLogger(c)
+	log := newLogger(c, os.Stdout)
 	slog.SetDefault(log)
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -291,7 +317,7 @@ func resetPassword(getenv func(string) string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	log := newLogger(c)
+	log := newLogger(c, os.Stderr)
 	// As root (docker exec in a container started with --user 0:0) the
 	// database files must not end up owned by root: drop to PUID:PGID first.
 	db, err := openData(c, log)

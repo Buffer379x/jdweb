@@ -409,3 +409,38 @@ func TestServeEndToEnd(t *testing.T) {
 		t.Error("the password is in the log")
 	}
 }
+
+func TestCheckDataDirRefusesTheRootAndEmpty(t *testing.T) {
+	for _, dir := range []string{"", "  ", "/", "//", "/."} {
+		if err := checkDataDir(dir); err == nil {
+			t.Errorf("checkDataDir(%q) accepted", dir)
+		}
+	}
+	// A link to / is the root too.
+	link := filepath.Join(t.TempDir(), "rootlink")
+	if err := os.Symlink("/", link); err == nil {
+		if err := checkDataDir(link); err == nil {
+			t.Error("a symbolic link to / was accepted")
+		}
+	}
+	for _, dir := range []string{"/data", t.TempDir(), "relative/data"} {
+		if err := checkDataDir(dir); err != nil {
+			t.Errorf("checkDataDir(%q): %v", dir, err)
+		}
+	}
+	// openData stops before it touches anything.
+	if _, err := openData(config{DataDir: "/", PUID: 99, PGID: 100}, slog.New(slog.NewTextHandler(io.Discard, nil))); err == nil ||
+		!strings.Contains(err.Error(), "root of the file system") {
+		t.Fatalf("openData(/) = %v", err)
+	}
+}
+
+func TestLoggerMasksSecretLookingAttributes(t *testing.T) {
+	var buf bytes.Buffer
+	log := newLogger(config{}, &buf)
+	log.Info("x", "password", "hunter2", "api_key", "k-1", "setup_token", "shown", "path", "/p")
+	out := buf.String()
+	if strings.Contains(out, "hunter2") || strings.Contains(out, "k-1") || !strings.Contains(out, "shown") || !strings.Contains(out, "/p") {
+		t.Fatalf("log = %s", out)
+	}
+}

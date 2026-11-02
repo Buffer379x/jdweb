@@ -31,6 +31,7 @@ func (s *Server) handleSetup(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
+	s.sessionsChanged() // a reset ends all sessions
 	noContent(w)
 }
 
@@ -62,6 +63,7 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.auth.ClearSessionCookie(w, r)
+	s.sessionsChanged()
 	noContent(w)
 }
 
@@ -103,6 +105,7 @@ func (s *Server) handleSignOutOthers(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
+	s.sessionsChanged()
 	noContent(w)
 }
 
@@ -120,6 +123,7 @@ func (s *Server) handlePassword(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
+	s.sessionsChanged()
 	noContent(w)
 }
 

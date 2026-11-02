@@ -218,11 +218,31 @@ func (s *Server) handleConnectionSet(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
+	// Save first, switch second, and take the save back if the switch fails:
+	// a saved address that was never used would be the address of every restart.
+	var previous string
+	hadPrevious := true
+	switch err := s.db.GetJSON(r.Context(), settingJDURL, &previous); {
+	case errors.Is(err, store.ErrNotFound):
+		hadPrevious = false
+	case err != nil:
+		s.fail(w, r, err)
+		return
+	}
 	if err := s.db.SetJSON(r.Context(), settingJDURL, norm); err != nil {
 		s.fail(w, r, err)
 		return
 	}
-	if err := s.engine.SetURL(norm); err != nil {
+	if err := s.setURL(norm); err != nil {
+		var undo error
+		if hadPrevious {
+			undo = s.db.SetJSON(r.Context(), settingJDURL, previous)
+		} else {
+			undo = s.db.DeleteSetting(r.Context(), settingJDURL)
+		}
+		if undo != nil {
+			s.log.Error("cannot take back the saved JDownloader address", "err", undo)
+		}
 		s.fail(w, r, err)
 		return
 	}

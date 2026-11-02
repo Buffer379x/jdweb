@@ -2,6 +2,7 @@ package api
 
 import (
 	"net/http"
+	"slices"
 
 	"github.com/Buffer379x/jdweb/internal/jd"
 )
@@ -88,10 +89,39 @@ func (s *Server) handleExtractionCancel(w http.ResponseWriter, r *http.Request) 
 	noContent(w)
 }
 
+// archiveSettingsDTO are the settings of an archive. finalPassword and
+// passwords are secrets (Concept 9.4): they show as the mask, secret says so,
+// and POST /extraction/archives/{id}/reveal gives the real values.
+type archiveSettingsDTO struct {
+	ArchiveID                          string   `json:"archiveId"`
+	ExtractPath                        string   `json:"extractPath"`
+	FinalPassword                      string   `json:"finalPassword"`
+	Passwords                          []string `json:"passwords"`
+	AutoExtract                        *bool    `json:"autoExtract"`
+	RemoveDownloadLinksAfterExtraction *bool    `json:"removeDownloadLinksAfterExtraction"`
+	RemoveFilesAfterExtraction         *bool    `json:"removeFilesAfterExtraction"`
+	Secret                             bool     `json:"secret"`
+}
+
+func newArchiveSettingsDTO(a jd.ArchiveSettings) *archiveSettingsDTO {
+	d := &archiveSettingsDTO{
+		ArchiveID: a.ArchiveID, ExtractPath: a.ExtractPath, Passwords: []string{}, AutoExtract: a.AutoExtract,
+		RemoveDownloadLinksAfterExtraction: a.RemoveDownloadLinksAfterExtract, RemoveFilesAfterExtraction: a.RemoveFilesAfterExtraction,
+		Secret: true,
+	}
+	if a.FinalPassword != "" {
+		d.FinalPassword = maskValue
+	}
+	if len(a.Passwords) > 0 {
+		d.Passwords = []string{maskValue}
+	}
+	return d
+}
+
 // archiveDTO is an archive with its settings.
 type archiveDTO struct {
 	jd.ArchiveStatus
-	Settings *jd.ArchiveSettings `json:"settings"`
+	Settings *archiveSettingsDTO `json:"settings"`
 }
 
 // handleExtractionArchives is POST /extraction/archives: the archives of the
@@ -136,36 +166,69 @@ func (s *Server) archives(r *http.Request, c *jd.Client, b selectionBody) ([]arc
 	for i := range out {
 		for j := range settings {
 			if settings[j].ArchiveID == out[i].ArchiveID {
-				out[i].Settings = &settings[j]
+				out[i].Settings = newArchiveSettingsDTO(settings[j])
 			}
 		}
 	}
 	return out, nil
 }
 
-// handleExtractionSettings is PUT /extraction/archives/{id}.
-func (s *Server) handleExtractionSettings(w http.ResponseWriter, r *http.Request) {
-	var b struct {
-		ExtractPath                     string   `json:"extractPath"`
-		FinalPassword                   string   `json:"finalPassword"`
-		Passwords                       []string `json:"passwords"`
-		AutoExtract                     *bool    `json:"autoExtract"`
-		RemoveDownloadLinksAfterExtract *bool    `json:"removeDownloadLinksAfterExtraction"`
-		RemoveFilesAfterExtraction      *bool    `json:"removeFilesAfterExtraction"`
-	}
+// handleExtractionReveal is POST /extraction/archives/{id}/reveal: the real
+// finalPassword and passwords of one archive. Every call is logged without values.
+func (s *Server) handleExtractionReveal(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	err := decode(r, &b, false)
-	if err == nil && (id == "" || len(id) > 512 || len(b.Passwords) > 1000) {
-		err = badRequest("The archive id is missing or too long, or there are too many passwords.")
+	var cur []jd.ArchiveSettings
+	var err error
+	if id == "" || len(id) > 512 {
+		err = badRequest("The archive id is missing or too long.")
 	}
 	if err == nil {
 		var c *jd.Client
 		if c, err = s.client(); err == nil {
-			err = c.SetArchiveSettings(r.Context(), jd.ArchiveSettings{
-				ArchiveID: id, ExtractPath: b.ExtractPath, FinalPassword: b.FinalPassword, Passwords: b.Passwords,
-				AutoExtract: b.AutoExtract, RemoveDownloadLinksAfterExtract: b.RemoveDownloadLinksAfterExtract,
-				RemoveFilesAfterExtraction: b.RemoveFilesAfterExtraction,
-			})
+			cur, err = c.ArchiveSettings(r.Context(), []string{id})
+		}
+	}
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	out := map[string]any{"finalPassword": "", "passwords": []string{}}
+	for _, a := range cur {
+		if a.ArchiveID == id {
+			out["finalPassword"] = a.FinalPassword
+			if a.Passwords != nil {
+				out["passwords"] = a.Passwords
+			}
+		}
+	}
+	s.log.Info("archive passwords revealed", "archive", id) // never the values
+	s.writeJSON(w, r, http.StatusOK, out)
+}
+
+// handleExtractionSettings is PUT /extraction/archives/{id}. Fields that are
+// absent keep their value, passwords included. The mask is not a value.
+func (s *Server) handleExtractionSettings(w http.ResponseWriter, r *http.Request) {
+	var b struct {
+		ExtractPath                     string    `json:"extractPath"`
+		FinalPassword                   string    `json:"finalPassword"`
+		Passwords                       *[]string `json:"passwords"`
+		AutoExtract                     *bool     `json:"autoExtract"`
+		RemoveDownloadLinksAfterExtract *bool     `json:"removeDownloadLinksAfterExtraction"`
+		RemoveFilesAfterExtraction      *bool     `json:"removeFilesAfterExtraction"`
+	}
+	id := r.PathValue("id")
+	err := decode(r, &b, false)
+	if err == nil && (id == "" || len(id) > 512 || (b.Passwords != nil && len(*b.Passwords) > 1000)) {
+		err = badRequest("The archive id is missing or too long, or there are too many passwords.")
+	}
+	if err == nil && (b.FinalPassword == maskValue || (b.Passwords != nil && slices.Contains(*b.Passwords, maskValue))) {
+		err = badRequest("This is the mask of a secret, not a value. Send a new value or leave the field out.")
+	}
+	if err == nil {
+		var c *jd.Client
+		if c, err = s.client(); err == nil {
+			err = s.saveArchiveSettings(r, c, id, b.ExtractPath, b.FinalPassword, b.Passwords, b.AutoExtract,
+				b.RemoveDownloadLinksAfterExtract, b.RemoveFilesAfterExtraction)
 		}
 	}
 	if err != nil {
@@ -173,6 +236,28 @@ func (s *Server) handleExtractionSettings(w http.ResponseWriter, r *http.Request
 		return
 	}
 	noContent(w)
+}
+
+func (s *Server) saveArchiveSettings(r *http.Request, c *jd.Client, id, path, final string, pws *[]string, auto, rmLinks, rmFiles *bool) error {
+	var passwords []string
+	if pws != nil {
+		passwords = *pws
+	} else {
+		// JDownloader replaces the whole list: keep the stored one.
+		cur, err := c.ArchiveSettings(r.Context(), []string{id})
+		if err != nil {
+			return err
+		}
+		for _, a := range cur {
+			if a.ArchiveID == id {
+				passwords = a.Passwords
+			}
+		}
+	}
+	return c.SetArchiveSettings(r.Context(), jd.ArchiveSettings{
+		ArchiveID: id, ExtractPath: path, FinalPassword: final, Passwords: passwords,
+		AutoExtract: auto, RemoveDownloadLinksAfterExtract: rmLinks, RemoveFilesAfterExtraction: rmFiles,
+	})
 }
 
 func (s *Server) handleExtractionPassword(w http.ResponseWriter, r *http.Request) {

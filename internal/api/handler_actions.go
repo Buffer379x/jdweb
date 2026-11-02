@@ -347,8 +347,10 @@ func runCleanup(ctx context.Context, _ *Server, c *jd.Client, list state.List, b
 	case !slices.Contains(selections, sel):
 		return nil, badRequest("selection must be one of %s.", joinEnum(selections))
 	}
-	if sel == jd.SelectionSelected && len(b.LinkIDs)+len(b.PackageIDs) == 0 {
-		return nil, badRequest("selection SELECTED needs at least one link or package.")
+	// Only ALL may go without ids. JDownloader reads UNSELECTED and NONE with an
+	// empty list as "everything", which nobody asks for by accident.
+	if sel != jd.SelectionAll && len(b.LinkIDs)+len(b.PackageIDs) == 0 {
+		return nil, badRequest("selection %s needs at least one link or package. To clean up everything, say selection ALL.", sel)
 	}
 	if len(b.LinkIDs) > maxIDs || len(b.PackageIDs) > maxIDs {
 		return nil, badRequest("Too many ids in one request (at most %d).", maxIDs)

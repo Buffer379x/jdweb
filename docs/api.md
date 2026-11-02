@@ -19,14 +19,14 @@ All paths are below `/api/v1`, except `/healthz`.
   | `conflict` | 409 | State does not allow it: setup already done, two-factor already on, JDownloader wants another dialog answered first. |
   | `rate_limited` | 429 | Too many attempts. The header `Retry-After` has the seconds to wait. |
   | `jd_offline` | 503 | JDownloader does not answer, or no address is set. |
-  | `jd_error` | 502, 404 | JDownloader answered with an error, or another service answers at the address. 404 when the entry is gone (a captcha, dialog or extraction that finished). |
-  | `internal` | 500, 503 | Bug or full disk. Details are in the log only. |
+  | `jd_error` | 502, 404 | JDownloader answered with an error, or another service answers at the address. 404 when a captcha, a dialog or an extraction is gone (solved, answered or finished meanwhile). Actions on links and packages that are gone are no error, see Actions. |
+  | `internal` | 500, 503 | Bug, full disk, a database call that took too long (500), or a request cancelled by the browser (503). Details are in the log only. |
 
 - State-changing requests (every method but GET and HEAD, public routes included) need the header `X-JDWeb-Request: 1` and an `Origin` that names the host the request went to, otherwise the response is 403. The check comes after the session check: without a session the answer is 401.
 - No GET route changes anything. GET routes only read.
 - IDs are always strings of digits in JSON, in requests and responses. A number, a negative number or zero is a 400. Where a request names the place "behind" which something goes (`afterLinkId`, `afterPackageId`), an empty string or `"-1"` means the top of the list.
 - A request that succeeds and has nothing to say answers `204 No Content`. System actions and `POST /update/apply` answer `202`.
-- JSON bodies are limited to 1 MiB, `/linkgrabber/add` and `/linkgrabber/container` to 64 MiB, `PUT /prefs` to 64 KiB.
+- JSON bodies are limited to 1 MiB, `/linkgrabber/add` to 8 MiB, `/linkgrabber/container` to 64 MiB, `PUT /prefs` to 64 KiB. These two routes also get more time to upload and to answer than the 30 s and 60 s of other routes.
 - Unknown fields in request bodies are ignored.
 - The server answers every request with `Content-Security-Policy`, `X-Content-Type-Options: nosniff` and `Referrer-Policy: no-referrer`. API answers carry `Cache-Control: no-store`, except icons.
 
@@ -114,7 +114,7 @@ Fields missing in JDownloader responses mean `false`, `0` or empty.
 | `dialog` | `{count}` | |
 | `connection` | `{connection,detail}` | |
 
-The stream starts with `retry: 3000`, then one `status` and one `connection` event with the current state. A keepalive comment (`: keepalive`) is sent every 20 s. Each event is flushed at once; the stream is never compressed. A browser that falls too far behind is disconnected: it reconnects (EventSource does this by itself) and must load the lists again. Open streams count as open browsers: JDWeb polls JDownloader faster while at least one is open. The server ends all streams when it shuts down.
+A stream belongs to the session that opened it. When that session ends (logout, `DELETE /sessions`, password change, reset, expiry) the stream is closed: at once for the first three, at the next keepalive for the others. The browser's reconnect then gets a 401. The stream starts with `retry: 3000`, then one `status` and one `connection` event with the current state. A keepalive comment (`: keepalive`) is sent every 20 s. Each event is flushed at once; the stream is never compressed. A browser that falls too far behind is disconnected: it reconnects (EventSource does this by itself) and must load the lists again. Open streams count as open browsers: JDWeb polls JDownloader faster while at least one is open. The server ends all streams when it shuts down.
 
 ## Control
 
@@ -156,7 +156,7 @@ Ids that JDownloader dropped meanwhile are no error: it answers such an action w
 Enums, checked by JDWeb:
 
 - `priority`: `HIGHEST`, `HIGHER`, `HIGH`, `DEFAULT`, `LOW`, `LOWER`, `LOWEST`.
-- `cleanup`: `action` is one of `DELETE_ALL`, `DELETE_DISABLED`, `DELETE_FAILED`, `DELETE_FINISHED`, `DELETE_OFFLINE`, `DELETE_DUPE`, `DELETE_MODE`. `mode` is one of `REMOVE_LINKS_ONLY`, `REMOVE_LINKS_AND_RECYCLE_FILES`, `REMOVE_LINKS_AND_DELETE_FILES` and has no default: it decides what happens to files on disk, so a request without it is a 400. `selection` is one of `SELECTED`, `UNSELECTED`, `ALL`, `NONE`; `SELECTED` needs ids.
+- `cleanup`: `action` is one of `DELETE_ALL`, `DELETE_DISABLED`, `DELETE_FAILED`, `DELETE_FINISHED`, `DELETE_OFFLINE`, `DELETE_DUPE`, `DELETE_MODE`. `mode` is one of `REMOVE_LINKS_ONLY`, `REMOVE_LINKS_AND_RECYCLE_FILES`, `REMOVE_LINKS_AND_DELETE_FILES` and has no default: it decides what happens to files on disk, so a request without it is a 400. `selection` is one of `SELECTED`, `UNSELECTED`, `ALL`, `NONE`. Only `ALL` may go without ids (it ignores them). `SELECTED`, `UNSELECTED` and `NONE` need at least one id, otherwise 400: JDownloader reads an empty selection as "everything", and nobody should clean up everything by accident. To clean up everything, say `ALL`.
 - `unskip` `reason`: empty (all) or one of the skip reasons of JDownloader.
 
 `rename-*` names and `new-package` names must not be empty. `password` may be an empty string, which clears it, but must be present. `clear` empties the whole linkgrabber, `to-downloads` with `start:true` also starts the downloads. `add-variant` without `afterLinkId` and `destPackageId` puts the copy behind the original, in its package.
@@ -189,8 +189,9 @@ A captcha that was solved or timed out meanwhile is `404 jd_error` with a messag
 - `GET /extraction/queue` returns a list of `{archiveId,archiveName,type,controllerId,controllerStatus,states}`. `controllerId` is a number (-1 without a running controller) and the argument of `cancel`.
 - `POST /extraction/start` with `{linkIds,packageIds}` returns `{started:{controllerId:bool}}`.
 - `POST /extraction/cancel` with `{id}` (the controller id as string): 204, or `404 jd_error` when it finished already.
-- `POST /extraction/archives` with `{linkIds,packageIds}` returns a list of archives as in the queue, each with `settings` (`{archiveId,extractPath,finalPassword,passwords,autoExtract,removeDownloadLinksAfterExtraction,removeFilesAfterExtraction}` or null).
-- `PUT /extraction/archives/{id}` with the fields of `settings`: 204. The `id` is the `archiveId`. Fields that are absent keep their value, except `passwords`, which replaces the list.
+- `POST /extraction/archives` with `{linkIds,packageIds}` returns a list of archives as in the queue, each with `settings` (`{archiveId,extractPath,finalPassword,passwords,autoExtract,removeDownloadLinksAfterExtraction,removeFilesAfterExtraction,secret}` or null). `finalPassword` and `passwords` are secrets, masked like in `/config`: `"••••••"` and `["••••••"]` when set, empty when not set, and `secret` is true.
+- `POST /extraction/archives/{id}/reveal` returns `{finalPassword,passwords}` with the real values. Every call is logged with the archive id, never the values.
+- `PUT /extraction/archives/{id}` with the fields of `settings`: 204. The `id` is the `archiveId`. Fields that are absent keep their value, `passwords` included; a given list replaces the stored one (an empty list clears it). The mask as `finalPassword` or inside `passwords` is a 400, as in `PUT /config`.
 - `POST /extraction/passwords` with `{password}`: 204.
 
 ## Accounts
@@ -228,14 +229,14 @@ A captcha that was solved or timed out meanwhile is `404 jd_error` with a messag
 - `POST /update/apply`: 202. JDownloader restarts to install the update.
 - `GET /diagnostics` returns `{checks:[{id,status,messageKey,detail}],acknowledged}`. `status` is `ok`, `warn` or `fail`, `messageKey` selects the translated text of the frontend, `detail` has the values in plain English. `acknowledged` says that the user confirmed the warning about the API without a login.
 - `POST /diagnostics/acknowledge` returns `{acknowledged:true}`. Changing the address with `PUT /connection` clears it again, a new address deserves a new look.
-- `GET /connection` returns `{url,source,connection,detail}`. `source` is `ui` (saved in the web interface), `env` (`JDWEB_JD_URL`) or `default`. `PUT /connection` with `{url}` cleans the address (adds `http://`, lower-cases, removes trailing slashes), saves it, switches at once and answers like `GET`. A saved address wins over `JDWEB_JD_URL`. An address that cannot be one (empty, other scheme, no host, port out of range, user and password, query) is a 400 whose message says why. Whether JDownloader answers there is not checked here: `connection` and `detail` (`misconfigured` with a hint, or `offline`) tell.
+- `GET /connection` returns `{url,source,connection,detail}`. `source` is `ui` (saved in the web interface), `env` (`JDWEB_JD_URL`) or `default`. `PUT /connection` with `{url}` cleans the address (adds `http://`, lower-cases, removes trailing slashes), saves it, switches at once and answers like `GET`. If the switch fails, the saved address is taken back. A saved address wins over `JDWEB_JD_URL`. An address that cannot be one (empty, other scheme, no host, port out of range, user and password, query) is a 400 whose message says why. Whether JDownloader answers there is not checked here: `connection` and `detail` (`misconfigured` with a hint, or `offline`) tell.
 
 ## Icons
 
 - `GET /icons/hoster/{name}`
 - `GET /icons/file/{name}`
 
-Both are proxied with an in-memory cache (the most recently used 512 icons) and `Cache-Control: public, max-age=86400`. The answer is the image of JDownloader (PNG, 16x16) with its `Content-Type`. An unknown host or file type gets a generic icon, not an error. Names longer than 255 characters or with control characters are a 400.
+Both are proxied with an in-memory cache (at most 512 icons and 32 MiB, least recently used out) and `Cache-Control: private, max-age=86400` (the icons are behind the session). The answer is the image of JDownloader (PNG, 16x16) with its `Content-Type`. Only `image/png`, `image/jpeg`, `image/gif`, `image/webp` and `image/x-icon` are passed on, anything else is `502 jd_error`. A failed lookup of a name is remembered for 5 minutes, so a hostile name does not hit JDownloader again and again; an offline JDownloader is not remembered. An unknown host or file type gets a generic icon, not an error. Names longer than 255 characters or with control characters are a 400.
 
 ## UI preferences
 
@@ -243,4 +244,4 @@ Both are proxied with an in-memory cache (the most recently used 512 icons) and 
 
 ## Web app
 
-All other `GET` paths serve the web app and need no session (the login page must load). Files under `/assets/` are cached for a year, everything else must be revalidated. A path without a file extension that is no file gets `index.html` (the app routes it); a missing file with an extension, or one under `/assets/`, is a 404 and never HTML. Unknown paths below `/api` are a JSON 404. A build without the web app answers with a plain text 404 that says so.
+All other `GET` paths serve the web app and need no session (the login page must load). Files under `/assets/` are cached for a year, everything else must be revalidated. Paths with a segment that starts with a dot (`.vite/`, `.env`, `.gitkeep`) are always a 404. Content types are fixed for `.js`, `.css`, `.svg`, `.webmanifest`, `.woff2`, `.json`, `.png`, `.ico`. Files outside `/assets/` carry an `ETag` (hash of the content), so a revisit is a 304. A path without a file extension that is no file gets `index.html` (the app routes it); a missing file with an extension, or one under `/assets/`, is a 404 and never HTML. Unknown paths below `/api` are a JSON 404. A build without the web app answers with a plain text 404 that says so.

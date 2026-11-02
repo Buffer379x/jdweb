@@ -51,8 +51,8 @@ func (s *Server) buildRoutes() []Route {
 	add("POST", "/downloads/actions/{action}", s.handleListAction(state.Downloads))
 	add("POST", "/linkgrabber/actions/{action}", s.handleListAction(state.Linkgrabber))
 	add("GET", "/downloads/stopmark", s.handleStopMark)
-	add("POST", "/linkgrabber/add", s.handleAddLinks).limit = bigBodyLimit
-	add("POST", "/linkgrabber/container", s.handleAddContainer).limit = bigBodyLimit
+	add("POST", "/linkgrabber/add", s.handleAddLinks).limit = addLinksLimit
+	add("POST", "/linkgrabber/container", s.handleAddContainer).limit = containerLimit
 	add("GET", "/linkgrabber/variants/{linkId}", s.handleVariants)
 	add("GET", "/linkgrabber/folders", s.handleFolders)
 
@@ -70,6 +70,7 @@ func (s *Server) buildRoutes() []Route {
 	add("POST", "/extraction/start", s.handleExtractionStart)
 	add("POST", "/extraction/cancel", s.handleExtractionCancel)
 	add("POST", "/extraction/archives", s.handleExtractionArchives)
+	add("POST", "/extraction/archives/{id}/reveal", s.handleExtractionReveal)
 	add("PUT", "/extraction/archives/{id}", s.handleExtractionSettings)
 	add("POST", "/extraction/passwords", s.handleExtractionPassword)
 

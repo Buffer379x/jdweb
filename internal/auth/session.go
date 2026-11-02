@@ -167,6 +167,13 @@ func (s *Service) newSession(ctx context.Context, userAgent string) (LoginResult
 	return LoginResult{Token: tok, ExpiresAt: exp}, nil
 }
 
+// SessionActive reports whether the session still exists and has not expired.
+// Long-lived responses (the event stream) use it to end with their session.
+func (s *Service) SessionActive(ctx context.Context, tokenHash string) bool {
+	sess, err := s.db.GetSession(ctx, tokenHash)
+	return err == nil && sess.ExpiresAt.After(s.now())
+}
+
 // Logout deletes one session by the token hash from the request context.
 func (s *Service) Logout(ctx context.Context, tokenHash string) error {
 	return s.db.DeleteSession(ctx, tokenHash)

@@ -111,8 +111,13 @@ func toAPIError(err error) (*apiError, error) {
 
 	case errors.As(err, &je):
 		return jdError(je), err
-	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
-		return newError(http.StatusServiceUnavailable, codeJDOffline, "The request was cancelled or took too long."), nil
+	// A plain context error is not a JDownloader that does not answer: the jd
+	// client reports its own timeouts as *jd.Error (above). Here the browser
+	// left, or a database call ran out of time.
+	case errors.Is(err, context.Canceled):
+		return newError(http.StatusServiceUnavailable, codeInternal, "The request was cancelled."), nil
+	case errors.Is(err, context.DeadlineExceeded):
+		return newError(http.StatusInternalServerError, codeInternal, "Internal error: an operation took too long."), err
 	}
 	return newError(http.StatusInternalServerError, codeInternal, "Internal error."), err
 }

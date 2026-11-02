@@ -318,6 +318,15 @@ func TestBodyLimits(t *testing.T) {
 	if r.status != 413 {
 		t.Fatalf("70 KiB of prefs: %d %s", r.status, r.body)
 	}
+	// Adding links is capped at 8 MiB, only containers may be bigger.
+	r = e.post("/api/v1/linkgrabber/add", `{"links":["`+strings.Repeat("a", 9<<20)+`"]}`)
+	if r.status != 413 {
+		t.Fatalf("9 MiB of links: %d", r.status)
+	}
+	r = e.post("/api/v1/linkgrabber/container", `{"name":"a.dlc","contentBase64":"`+strings.Repeat("A", 9<<20)+`"}`)
+	if r.status == 413 {
+		t.Fatalf("9 MiB container refused: %s", r.body)
+	}
 	// Links and containers may be big.
 	links := make([]string, 0, 30000)
 	for i := 0; i < 30000; i++ {

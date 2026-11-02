@@ -16,16 +16,22 @@ const maskValue = "••••••" // six bullets
 // secretKey matches the keys whose values are shown masked (Concept 9.4).
 var secretKey = regexp.MustCompile(`(?i)password|apikey|secret|token`)
 
-// secretType reports whether the setting is of a type that is masked: text and
-// lists of text. A number or a switch is no secret even if its key says so
-// (for example PasswordProtectionEnabled).
-func secretType(abstractType string) bool {
-	return abstractType == "STRING" || abstractType == "STRING_LIST"
+// plainTypes are the setting types that cannot hold a text secret. Everything
+// else, an unknown or empty type included, is masked when the key matches: a
+// new type of JDownloader must not make a secret visible.
+var plainTypes = map[string]bool{
+	"BOOLEAN": true, "INT": true, "LONG": true, "DOUBLE": true, "FLOAT": true, "BYTE": true, "SHORT": true,
+	"INT_LIST": true, "ENUM": true, "ENUM_LIST": true,
 }
 
-// isSecret decides on key and type.
+// isSecret decides on key and type. A switch or a number is no secret even if
+// its key says so (for example PasswordProtectionEnabled).
 func isSecret(key, abstractType string) bool {
-	return secretType(abstractType) && secretKey.MatchString(key)
+	return !plainTypes[abstractType] && secretKey.MatchString(key)
+}
+
+func isListType(abstractType string, raw json.RawMessage) bool {
+	return strings.HasSuffix(abstractType, "_LIST") || strings.HasPrefix(strings.TrimSpace(string(raw)), "[")
 }
 
 // maskJSON replaces a non-empty value by the mask. A list becomes a list of
@@ -36,7 +42,7 @@ func maskJSON(raw json.RawMessage, abstractType string) json.RawMessage {
 	switch {
 	case t == "" || t == "null" || t == `""` || t == "[]":
 		return raw
-	case abstractType == "STRING_LIST":
+	case isListType(abstractType, raw):
 		return json.RawMessage(`["` + maskValue + `"]`)
 	}
 	return json.RawMessage(`"` + maskValue + `"`)
@@ -166,8 +172,8 @@ func (s *Server) handleConfigReveal(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	if t := strings.TrimSpace(string(raw)); !strings.HasPrefix(t, `"`) && !strings.HasPrefix(t, "[") && t != "null" && t != "" {
-		s.fail(w, r, badRequest("This setting is not text and not masked."))
+	if t := strings.TrimSpace(string(raw)); t == "true" || t == "false" || (t != "" && (t[0] == '-' || t[0] >= '0' && t[0] <= '9')) {
+		s.fail(w, r, badRequest("This setting is a switch or a number and not masked."))
 		return
 	}
 	s.log.Info("secret setting revealed", "interface", b.Interface, "key", b.Key) // never the value

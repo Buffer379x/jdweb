@@ -2,6 +2,8 @@ package api
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"io"
 	"mime"
 	"net/http"
@@ -34,6 +36,11 @@ func (s *Server) handleFallback(w http.ResponseWriter, r *http.Request) {
 	name := strings.TrimPrefix(path.Clean("/"+r.URL.Path), "/")
 	if name == "" {
 		name = "index.html"
+	}
+	// Dotfiles and dot folders (.vite/, .gitkeep, .env) are never served.
+	if hasDotSegment(name) {
+		s.plain(w, http.StatusNotFound, "Not found.\n")
+		return
 	}
 	if data, ok := s.readFile(name); ok {
 		s.serveFile(w, r, name, data)
@@ -76,17 +83,46 @@ func (s *Server) readFile(name string) ([]byte, bool) {
 	return data, true
 }
 
+func hasDotSegment(name string) bool {
+	for _, seg := range strings.Split(name, "/") {
+		if strings.HasPrefix(seg, ".") {
+			return true
+		}
+	}
+	return false
+}
+
+// contentTypes are set by hand: the table of the operating system may lack
+// them or differ (a scratch image has none).
+var contentTypes = map[string]string{
+	".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".mjs": "text/javascript; charset=utf-8",
+	".css": "text/css; charset=utf-8", ".svg": "image/svg+xml", ".webmanifest": "application/manifest+json",
+	".woff2": "font/woff2", ".json": "application/json", ".png": "image/png", ".ico": "image/x-icon",
+	".txt": "text/plain; charset=utf-8", ".map": "application/json",
+}
+
+func contentType(name string) string {
+	ext := strings.ToLower(path.Ext(name))
+	if ct, ok := contentTypes[ext]; ok {
+		return ct
+	}
+	return mime.TypeByExtension(ext)
+}
+
 // serveFile sends a file. Names under /assets/ carry a hash of their content
 // and are cached for a year; everything else must be checked every time, or
 // an update would not reach the browser.
 func (s *Server) serveFile(w http.ResponseWriter, r *http.Request, name string, data []byte) {
 	h := w.Header()
-	if ct := mime.TypeByExtension(path.Ext(name)); ct != "" {
+	if ct := contentType(name); ct != "" {
 		h.Set("Content-Type", ct)
 	}
 	if strings.HasPrefix(name, "assets/") {
 		h.Set("Cache-Control", "public, max-age=31536000, immutable")
 	} else {
+		// The hash of the content is the ETag: an unchanged index.html costs a 304.
+		sum := sha256.Sum256(data)
+		h.Set("ETag", `"`+hex.EncodeToString(sum[:12])+`"`)
 		h.Set("Cache-Control", "no-cache")
 	}
 	http.ServeContent(w, r, name, time.Time{}, bytes.NewReader(data))

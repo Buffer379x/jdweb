@@ -7,6 +7,8 @@ import (
 	"io"
 	"net/http"
 	"time"
+
+	"github.com/Buffer379x/jdweb/internal/auth"
 )
 
 // eventWriteTimeout limits one write to a browser. A stream has no overall
@@ -37,6 +39,7 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	h.Set("X-Accel-Buffering", "no") // reverse proxies must not buffer the stream
 	w.WriteHeader(http.StatusOK)
 
+	cur, _ := auth.SessionFromContext(r.Context())
 	ch, cancel := s.hub.Subscribe()
 	defer cancel()
 	s.engine.Attach()
@@ -62,12 +65,21 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 
 	tick := time.NewTicker(s.keep)
 	defer tick.Stop()
+	rev := s.revoked()
 	for {
 		select {
 		case <-r.Context().Done():
 			return
 		case <-s.done:
 			return
+		case <-rev:
+			// Somebody signed out, changed the password or reset it: the stream
+			// ends if it was this session. The browser reconnects and gets a 401.
+			// The channel is replaced before the check, so no revoke is missed.
+			rev = s.revoked()
+			if !s.auth.SessionActive(r.Context(), cur.TokenHash) {
+				return
+			}
 		case m, ok := <-ch:
 			if !ok {
 				return // fell behind: end the stream, the browser reconnects
@@ -76,6 +88,10 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		case <-tick.C:
+			// A session also ends by expiry or by `reset-password` in another process.
+			if !s.auth.SessionActive(r.Context(), cur.TokenHash) {
+				return
+			}
 			if writeFrame(w, rc, []byte(": keepalive")) != nil {
 				return
 			}

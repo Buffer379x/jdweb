@@ -247,7 +247,7 @@ func TestIconsAreProxiedAndCached(t *testing.T) {
 		first := e.get(path)
 		second := e.get(path)
 		e.expect(first, 200)
-		if first.header.Get("Content-Type") != "image/png" || first.header.Get("Cache-Control") != "public, max-age=86400" {
+		if first.header.Get("Content-Type") != "image/png" || first.header.Get("Cache-Control") != "private, max-age=86400" {
 			t.Errorf("%s: %q, %q", kind, first.header.Get("Content-Type"), first.header.Get("Cache-Control"))
 		}
 		if string(first.body) != string(second.body) || len(first.body) < 20 {
@@ -266,7 +266,7 @@ func TestIconsAreProxiedAndCached(t *testing.T) {
 }
 
 func TestIconCacheEvictsTheLeastRecentlyUsed(t *testing.T) {
-	c := newIconCache(3)
+	c := newIconCache(3, 1<<20)
 	for _, k := range []string{"a", "b", "c"} {
 		c.put(k, icon{data: []byte(k)})
 	}
@@ -286,7 +286,7 @@ func TestIconCacheEvictsTheLeastRecentlyUsed(t *testing.T) {
 	if c.len() != 3 {
 		t.Errorf("cache holds %d entries, max is 3", c.len())
 	}
-	if big := newIconCache(iconCacheEntries); big.max != 512 {
+	if big := newIconCache(iconCacheEntries, iconCacheBytes); big.max != 512 || big.maxBytes != 32<<20 {
 		t.Errorf("the default cache size is %d, want 512", big.max)
 	}
 }
@@ -327,6 +327,10 @@ func TestErrorMapping(t *testing.T) {
 		{&jd.Error{Type: jd.TypeNotImplemented, Status: 501}, 502, "jd_error"},
 		{&jd.Error{Type: "Answer Dialog 1 first", Status: 400}, 409, "conflict"},
 		{store.ErrNotFound, 404, "not_found"},
+		// Plain context errors are no JDownloader outage: the browser left, or a database call ran out of time.
+		{context.DeadlineExceeded, 500, "internal"},
+		{fmt.Errorf("db: %w", context.DeadlineExceeded), 500, "internal"},
+		{context.Canceled, 503, "internal"},
 		{fmt.Errorf("disk on fire"), 500, "internal"},
 	}
 	for _, c := range cases {
@@ -346,7 +350,7 @@ func jdTimeout() error { return &jd.Error{Type: jd.TypeConnection, Raw: "dial tc
 func TestHTTPServerSettings(t *testing.T) {
 	e := newEnv(t)
 	hs := e.srv.HTTPServer(":0")
-	if hs.ReadHeaderTimeout != 5*time.Second || hs.ReadTimeout != 30*time.Second || hs.IdleTimeout != 120*time.Second {
+	if hs.ReadHeaderTimeout != 5*time.Second || hs.ReadTimeout != 30*time.Second || hs.IdleTimeout != 60*time.Second {
 		t.Errorf("timeouts: header %v read %v idle %v", hs.ReadHeaderTimeout, hs.ReadTimeout, hs.IdleTimeout)
 	}
 	// Longer than the 5 s throttle of a login under pressure, shorter than forever.
@@ -432,4 +436,79 @@ func newOtherService(t *testing.T) string {
 	}))
 	t.Cleanup(ts.Close)
 	return ts.URL
+}
+
+func TestIconCacheIsBoundedInBytes(t *testing.T) {
+	c := newIconCache(1000, 10_000)
+	blob := make([]byte, 3000)
+	for i := 0; i < 20; i++ {
+		c.put(fmt.Sprint(i), icon{data: blob, contentType: "image/png"})
+	}
+	if c.size() > 10_000 || c.len() > 3 {
+		t.Fatalf("cache holds %d bytes in %d entries, max 10000", c.size(), c.len())
+	}
+	if _, ok := c.get("19"); !ok {
+		t.Fatal("the newest icon was evicted")
+	}
+}
+
+func TestIconTypesAreWhitelisted(t *testing.T) {
+	for ct, want := range map[string]bool{
+		"image/png": true, "image/PNG; charset=x": true, "image/jpeg": true, "image/gif": true, "image/webp": true, "image/x-icon": true,
+		"image/svg+xml": false, "text/html": false, "application/octet-stream": false, "": false, "image/bmp": false,
+	} {
+		if _, ok := iconType(ct); ok != want {
+			t.Errorf("iconType(%q) = %v, want %v", ct, ok, want)
+		}
+	}
+}
+
+// A failed lookup is remembered for five minutes, a connection problem is not.
+func TestIconFailuresAreRememberedBriefly(t *testing.T) {
+	e := newEnv(t)
+	clock := time.Now()
+	e.srv.icons.now = func() time.Time { return clock }
+	const path = "/api/v1/icons/hoster/hostile%3Cname"
+	e.jd.FailNext("/contentV2/getFavIcon", 400, `{"src":"DEVICE","type":"BAD_PARAMETERS","data":null}`)
+	first := e.get(path)
+	if first.status != 502 || first.errCode() != "jd_error" {
+		t.Fatalf("first = %d %s", first.status, first.body)
+	}
+	second := e.get(path)
+	if second.status != 502 || len(e.jdCalls("/contentV2/getFavIcon")) != 1 {
+		t.Fatalf("second = %d, %d calls to JDownloader, want the failure from the cache", second.status, len(e.jdCalls("/contentV2/getFavIcon")))
+	}
+	clock = clock.Add(5*time.Minute + time.Second)
+	if r := e.get(path); r.status != 200 || len(e.jdCalls("/contentV2/getFavIcon")) != 2 {
+		t.Fatalf("after five minutes: %d, %d calls", r.status, len(e.jdCalls("/contentV2/getFavIcon")))
+	}
+	// Offline is transient and never remembered.
+	e.jd.Down()
+	if r := e.get("/api/v1/icons/file/x.bin"); r.status != 503 {
+		t.Fatalf("offline = %d", r.status)
+	}
+	e.jd.Up()
+	if r := e.get("/api/v1/icons/file/x.bin"); r.status != 200 {
+		t.Fatalf("after Up = %d %s", r.status, r.body)
+	}
+}
+
+// PUT /connection: when the engine refuses, the saved address does not stay.
+func TestConnectionNotKeptWhenTheSwitchFails(t *testing.T) {
+	e := newEnv(t)
+	e.srv.setURL = func(string) error { return fmt.Errorf("engine refuses") }
+	r := e.do("PUT", "/api/v1/connection", map[string]any{"url": "http://other.host:3128"})
+	e.expectErr(r, 500, "internal")
+	var saved string
+	if err := e.db.GetJSON(ctxBg, settingJDURL, &saved); err == nil {
+		t.Fatalf("the address %q stayed saved", saved)
+	}
+	// With an earlier saved address, that one stays.
+	if err := e.db.SetJSON(ctxBg, settingJDURL, "http://earlier:3128"); err != nil {
+		t.Fatal(err)
+	}
+	e.expectErr(e.do("PUT", "/api/v1/connection", map[string]any{"url": "http://other.host:3128"}), 500, "internal")
+	if err := e.db.GetJSON(ctxBg, settingJDURL, &saved); err != nil || saved != "http://earlier:3128" {
+		t.Fatalf("saved = %q, %v, want the earlier address", saved, err)
+	}
 }
