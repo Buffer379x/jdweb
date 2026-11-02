@@ -1,16 +1,21 @@
+# Keep the build context small and free of anything private.
 .git
+.github
 .gitignore
+.DS_Store
 .superpowers
 work
 test
 docs
 scripts
-node_modules
-web/node_modules
-dist
+deploy
+compose.yaml
+*.md
+!LICENSE
+**/node_modules
+# web/dist is rebuilt in the image; the placeholder stays so that go:embed works.
+web/dist/*
+!web/dist/.gitkeep
 *.db
 *.db-wal
 *.db-shm
-.DS_Store
-*.md
-!LICENSE

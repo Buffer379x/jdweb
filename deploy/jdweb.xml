@@ -1,0 +1,41 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>JDWeb</Name>
+  <Repository>ghcr.io/buffer379x/jdweb:latest</Repository>
+  <Registry>https://github.com/Buffer379x/jdweb/pkgs/container/jdweb</Registry>
+  <Network>bridge</Network>
+  <MyIP/>
+  <Privileged>false</Privileged>
+  <Support>https://github.com/Buffer379x/jdweb/issues</Support>
+  <Project>https://github.com/Buffer379x/jdweb</Project>
+  <Overview>JDWeb is an unofficial web interface for JDownloader, with live downloads, link grabber, captchas and settings in a fast browser app. It is not made by or affiliated with AppWork. Small image (&lt; 40 MB), no connections except to your JDownloader.&#xD;
+&#xD;
+Before the first start, change two advanced settings in JDownloader (Settings, Advanced Settings): "RemoteAPIConfig: Deprecated Api Enabled" = true and "RemoteAPIConfig: Deprecated Api Localhost Only" = false. Then restart JDownloader. JDownloader's network, IP and Docker settings stay as they are.&#xD;
+&#xD;
+Then set JDWEB_JD_URL to http://&lt;JDownloader-IP&gt;:3128 and choose a network that can reach JDownloader.&#xD;
+&#xD;
+First start: find the one-time setup token in the container log (Docker, then Logs), open the WebUI and create your account with it.&#xD;
+&#xD;
+SECURITY: JDownloader's API has no login. Anything that can reach its address and port 3128 can control JDownloader, JDWeb or not. In a home network that means every device there. For stricter isolation use a Docker network that only JDownloader and JDWeb share, or share JDownloader's network with this container (Network Type "Container", so that the API stays on localhost). See the README on GitHub.&#xD;
+&#xD;
+Note: the container starts as root (--user 0:0), gives the appdata folder to PUID:PGID (default 99:100 = nobody:users) and drops root at once. Keep the data folder on the cache or a pool (for example /mnt/cache/appdata/jdweb), not on the array path /mnt/user (FUSE).</Overview>
+  <Category>Downloaders: Network:Web:</Category>
+  <WebUI>http://[IP]:[PORT:7468]/</WebUI>
+  <TemplateURL>https://raw.githubusercontent.com/Buffer379x/jdweb/main/deploy/jdweb.xml</TemplateURL>
+  <Icon>https://raw.githubusercontent.com/Buffer379x/jdweb/main/deploy/jdweb-icon.png</Icon>
+  <ExtraParams>--user 0:0 --read-only --security-opt no-new-privileges:true --memory=256m</ExtraParams>
+  <PostArgs/>
+  <CPUset/>
+  <DateInstalled/>
+  <DonateText/>
+  <DonateLink/>
+  <Requires/>
+  <Config Name="WebUI-Port" Target="7468" Default="7468" Mode="tcp" Description="Port of the web interface." Type="Port" Display="always" Required="true" Mask="false">7468</Config>
+  <Config Name="Data (appdata)" Target="/data" Default="/mnt/cache/appdata/jdweb" Mode="rw" Description="Account, sessions and settings. Keep it on the cache or a pool, for example /mnt/cache/appdata/jdweb. Not on a network share or /mnt/user." Type="Path" Display="always" Required="true" Mask="false">/mnt/cache/appdata/jdweb</Config>
+  <Config Name="JDownloader address" Target="JDWEB_JD_URL" Default="" Mode="" Description="Address of JDownloader's API: http://&lt;JD-IP&gt;:3128 (or http://&lt;container-name&gt;:3128 in a custom network both containers share). Choose a Network Type above that can reach this address. The API has no login: see the Overview." Type="Variable" Display="always" Required="true" Mask="false"/>
+  <Config Name="Time zone" Target="TZ" Default="Europe/Berlin" Mode="" Description="Time zone for the log." Type="Variable" Display="always" Required="false" Mask="false">Europe/Berlin</Config>
+  <Config Name="PUID" Target="PUID" Default="99" Mode="" Description="User id that owns the appdata folder (Unraid: 99 = nobody)." Type="Variable" Display="advanced" Required="true" Mask="false">99</Config>
+  <Config Name="PGID" Target="PGID" Default="100" Mode="" Description="Group id (Unraid: 100 = users)." Type="Variable" Display="advanced" Required="true" Mask="false">100</Config>
+  <Config Name="Trusted proxies" Target="JDWEB_TRUSTED_PROXIES" Default="" Mode="" Description="Optional: address or CIDR of your reverse proxy (comma separated), so that X-Forwarded-For and X-Forwarded-Proto are believed. Needed for secure cookies behind HTTPS." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="Log level" Target="JDWEB_LOG_LEVEL" Default="info" Mode="" Description="debug, info, warn or error." Type="Variable" Display="advanced" Required="false" Mask="false">info</Config>
+</Container>

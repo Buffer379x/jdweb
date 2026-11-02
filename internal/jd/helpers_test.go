@@ -1,7 +1,6 @@
 package jd_test
 
 import (
-	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -47,18 +46,6 @@ var void = reply{200, []byte(`{"data":""}`)}
 type request struct {
 	Method, Path, Origin, ContentType, UserAgent, AcceptEncoding string
 	Body                                                         []byte
-}
-
-// params decodes the params array of the request.
-func (r request) params(t testing.TB) []json.RawMessage {
-	t.Helper()
-	var b struct {
-		Params []json.RawMessage `json:"params"`
-	}
-	if err := json.Unmarshal(r.Body, &b); err != nil {
-		t.Fatalf("request body %q: %v", r.Body, err)
-	}
-	return b.Params
 }
 
 // stub is a JDownloader that answers fixed replies per path and records requests.

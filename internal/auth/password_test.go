@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"errors"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -145,5 +146,21 @@ func TestHashQueueIsBoundedAndHonoursContext(t *testing.T) {
 	release()
 	if ok, err := VerifyPasswordContext(context.Background(), h, "correct horse battery"); err != nil || !ok {
 		t.Fatalf("verify after the queue drained: %v %v", ok, err)
+	}
+}
+
+// The memory of a hash goes back to the system at once: a container that
+// logged in once must not sit ~35 MiB above its idle size for minutes.
+func TestHashPasswordReleasesItsMemory(t *testing.T) {
+	productionCost(t)
+	for range 2 {
+		if _, err := HashPassword("correct horse battery"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var m runtime.MemStats
+	runtime.ReadMemStats(&m)
+	if kept := (m.HeapIdle - m.HeapReleased) >> 20; kept > 8 {
+		t.Fatalf("%d MiB of heap are idle but still held after hashing; want them released", kept)
 	}
 }

@@ -10,6 +10,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"runtime/debug"
 	"strings"
 	"sync/atomic"
 	"unicode"
@@ -83,7 +84,12 @@ func argonKey(ctx context.Context, pw string, salt []byte, t, m uint32, p uint8,
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	return argon2.IDKey([]byte(pw), salt, t, m, p, n), nil
+	key := argon2.IDKey([]byte(pw), salt, t, m, p, n)
+	// The hash worked on m KiB that are garbage now. Without this the Go
+	// runtime keeps them for minutes and the idle memory of the container
+	// stays ~35 MiB above what JDWeb needs.
+	debug.FreeOSMemory()
+	return key, nil
 }
 
 // HashPassword returns an Argon2id hash in the PHC string format.

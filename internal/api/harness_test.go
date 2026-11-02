@@ -308,15 +308,6 @@ func (e *env) jdCalls(path string) []testjd.Call { return e.jd.CallsTo(path) }
 // argsJSON returns the params of a call as compact JSON.
 func argsJSON(c testjd.Call) string { return string(c.Params) }
 
-func mustJSON(t testing.TB, v any) string {
-	t.Helper()
-	b, err := json.Marshal(v)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return string(b)
-}
-
 // addSession inserts one more session with the given cookie value.
 func (e *env) addSession(token string) {
 	e.t.Helper()

@@ -1,0 +1,39 @@
+# JDWeb next to JDownloader, in a network of their own (recommended for a fresh
+# install). Before the first start, switch on the two JDownloader settings
+# described in the README: "RemoteAPIConfig: Deprecated Api Enabled" = true and
+# "RemoteAPIConfig: Deprecated Api Localhost Only" = false, then restart JDownloader.
+services:
+  jdownloader:
+    image: jlesage/jdownloader-2:latest
+    container_name: jdownloader
+    restart: unless-stopped
+    networks: [jdnet]
+    ports:
+      - "5800:5800" # JDownloader's own web interface. Do NOT publish 3128: its API has no login.
+    volumes:
+      - ./jd-config:/config
+      - ./downloads:/output
+
+  jdweb:
+    image: ghcr.io/buffer379x/jdweb:0.1.0
+    container_name: jdweb
+    restart: unless-stopped
+    depends_on: [jdownloader]
+    networks: [jdnet]
+    ports:
+      - "7468:7468"
+    environment:
+      JDWEB_JD_URL: http://jdownloader:3128
+      TZ: UTC
+    volumes:
+      - jdweb-data:/data # a named volume takes the owner (99:100) from the image
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 256m
+
+networks:
+  jdnet: {}
+
+volumes:
+  jdweb-data: {}

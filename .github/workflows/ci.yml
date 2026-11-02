@@ -1,0 +1,101 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  web:
+    name: Web app
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: web/package.json # pnpm version from "packageManager"
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24.22.1
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+      - name: Install (lockfile only)
+        run: pnpm --dir web install --frozen-lockfile
+      - name: Type check
+        run: pnpm --dir web check
+      - name: Tests
+        run: pnpm --dir web test
+      - name: Build
+        run: pnpm --dir web build
+      - name: Audit (fails on high)
+        run: pnpm --dir web audit --audit-level=high
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web-dist
+          path: web/dist
+          include-hidden-files: true
+          retention-days: 1
+
+  go:
+    name: Go
+    runs-on: ubuntu-latest
+    needs: web
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - name: gofmt
+        run: test -z "$(gofmt -l .)" || (gofmt -l . && exit 1)
+      - name: vet
+        run: go vet ./...
+      - name: staticcheck
+        run: go run honnef.co/go/tools/cmd/staticcheck@v0.8.2 '-checks=all,-ST*' ./...
+      - name: govulncheck
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...
+      - name: Tests without a built web app (placeholder only)
+        run: go test -race -count=1 ./...
+      - uses: actions/download-artifact@v5
+        with:
+          name: web-dist
+          path: web/dist
+      - name: Tests with the built web app
+        run: go test -race -count=1 ./...
+
+  repo:
+    name: Template, icon, version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Unraid template
+        run: python3 scripts/check-template.py deploy/jdweb.xml
+      - name: Icon without a transparent edge
+        run: python3 scripts/check_icon_opaque.py deploy/jdweb-icon.png
+      - name: VERSION, web/package.json and CHANGELOG agree
+        run: |
+          v=$(cat VERSION)
+          [[ "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "VERSION is not a semantic version: $v"; exit 1; }
+          p=$(python3 -c 'import json;print(json.load(open("web/package.json"))["version"])')
+          [ "$p" = "$v" ] || { echo "web/package.json says $p, VERSION says $v"; exit 1; }
+          grep -q "^ARG VERSION=$v\$" Dockerfile || { echo "Dockerfile ARG VERSION differs from VERSION"; exit 1; }
+          grep -q "ghcr.io/buffer379x/jdweb:$v\$" compose.yaml || { echo "compose.yaml does not pin the image to $v"; exit 1; }
+
+  docker:
+    name: Image, smoke test, scan
+    runs-on: ubuntu-latest
+    needs: [web, go, repo]
+    steps:
+      - uses: actions/checkout@v5
+      - name: Build
+        run: docker build -t jdweb:ci .
+      - name: Smoke test
+        run: scripts/smoke-test.sh jdweb:ci
+      - name: Trivy scan (HIGH and CRITICAL with a fix fail the build)
+        run: |
+          docker save jdweb:ci -o "$RUNNER_TEMP/jdweb-image.tar"
+          docker run --rm -v "$RUNNER_TEMP/jdweb-image.tar:/scan/image.tar:ro" \
+            aquasec/trivy:0.75.0@sha256:af6acf9a6b85dfe389a1941505c0ce9efef52a4719635e1a962f022a3d855daa \
+            image --input /scan/image.tar --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1
