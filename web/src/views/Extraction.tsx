@@ -8,9 +8,9 @@ import { Segbar } from "../components/Segbar.tsx";
 import type { Seg } from "../lib/segments.ts";
 import { Icon } from "../components/Icon.tsx";
 import { copyText } from "../components/clipboard.ts";
-import { buildPatch, hasSecret, splitPasswords, type ArchiveEdit } from "../lib/archive.ts";
+import { buildPatch, hasSecret, revealArchive, splitPasswords, type ArchiveEdit } from "../lib/archive.ts";
 import { MASK } from "../lib/editors.ts";
-import { canCancel, jobState, partCounts, partList, type ArchiveInfo, type QueueEntry } from "../lib/extraction.ts";
+import { canCancel, jobState, partCounts, partList, type ArchiveInfo, type ArchiveSettings, type QueueEntry } from "../lib/extraction.ts";
 import { plural, t } from "../i18n/index.ts";
 import { extractionOpen, live, pushToast, pushToastForError } from "../store/app.ts";
 import { openDialog } from "../store/dialogs.ts";
@@ -185,6 +185,11 @@ function ArchiveForm({ archive, onClose }: { archive: ArchiveInfo; onClose: () =
   const [finalPw, setFinalPw] = useState<string | null>(null);
   const [pws, setPws] = useState<string | null>(null);
   const [revealed, setRevealed] = useState(false);
+  // What the form is compared with: the masked settings, and after "Show" the real ones. Without that the
+  // revealed values would differ from the mask and look like an edit.
+  const [base, setBase] = useState<ArchiveSettings | null>(s ?? null);
+  const [clearFinal, setClearFinal] = useState(false);
+  const [clearList, setClearList] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [extra, setExtra] = useState("");
@@ -194,16 +199,19 @@ function ArchiveForm({ archive, onClose }: { archive: ArchiveInfo; onClose: () =
   const id = encodeURIComponent(archive.archiveId);
   const edit: ArchiveEdit = {
     extractPath: path, autoExtract: auto, removeDownloadLinksAfterExtraction: rmLinks, removeFilesAfterExtraction: rmFiles, finalPassword: finalPw, passwords: pws,
+    clearFinalPassword: clearFinal, clearPasswords: clearList,
   };
-  const patch = buildPatch(s, edit);
+  const patch = buildPatch(base ?? s, edit);
   const dirty = Object.keys(patch).length > 0;
 
   const reveal = async () => {
     setBusy(true);
     try {
-      const r = await post<{ finalPassword: string; passwords: string[] }>(`/extraction/archives/${id}/reveal`, {});
-      setFinalPw(r.finalPassword ?? "");
-      setPws((r.passwords ?? []).join("\n"));
+      const r = await revealArchive(archive.archiveId, s);
+      setBase(r.base);
+      // Typed text stays; an untouched field shows what is stored.
+      if (!clearFinal && !finalPw) setFinalPw(r.finalPassword);
+      if (!clearList && !pws) setPws(r.passwords);
       setRevealed(true);
     } catch (e) {
       pushToastForError(e);
@@ -233,8 +241,8 @@ function ArchiveForm({ archive, onClose }: { archive: ArchiveInfo; onClose: () =
     }
   };
   const masked = !revealed;
-  const pwSet = hasSecret(s.finalPassword);
-  const listSet = hasSecret(s.passwords);
+  const pwSet = hasSecret((base ?? s).finalPassword);
+  const listSet = hasSecret((base ?? s).passwords);
   return (
     <div class="arc-form">
       <p class="muted small mono" dir="auto">{archive.archiveName} · {archive.type}</p>
@@ -242,29 +250,48 @@ function ArchiveForm({ archive, onClose }: { archive: ArchiveInfo; onClose: () =
         <span class="field-label">{t("arc.extractPath")}</span>
         <input class="input mono" value={path} dir="ltr" autocomplete="off" spellcheck={false} data-autofocus="" onInput={(e) => setPath(e.currentTarget.value)} />
       </label>
-      <label class="field">
-        <span class="field-label">{t("arc.finalPassword")}</span>
-        {finalPw === null ? (
+      <div class="field">
+        <label class="field-label" for="arc-final">{t("arc.finalPassword")}</label>
+        {clearFinal ? (
           <div class="cfg-secret">
-            <input class="input mono" readOnly value={pwSet ? MASK : ""} placeholder={t("cfg.notSet")} aria-label={`${t("arc.finalPassword")}: ${pwSet ? t("cfg.secretSet") : t("cfg.notSet")}`} />
+            <input id="arc-final" class="input mono" readOnly value="" placeholder={t("arc.willRemove")} />
+            <button type="button" class="btn small" onClick={() => setClearFinal(false)}>{t("arc.undo")}</button>
+          </div>
+        ) : finalPw === null ? (
+          <div class="cfg-secret">
+            <input id="arc-final" class="input mono" readOnly value={pwSet ? MASK : ""} placeholder={t("cfg.notSet")} aria-label={`${t("arc.finalPassword")}: ${pwSet ? t("cfg.secretSet") : t("cfg.notSet")}`} />
             <button type="button" class="btn small" onClick={() => setFinalPw("")}>{pwSet ? t("cfg.change") : t("cfg.set")}</button>
+            {pwSet ? <button type="button" class="btn small" onClick={() => setClearFinal(true)}>{t("arc.remove")}</button> : null}
           </div>
         ) : (
-          <input class="input mono" type={revealed ? "text" : "password"} value={finalPw} autocomplete="new-password" onInput={(e) => setFinalPw(e.currentTarget.value)} />
-        )}
-      </label>
-      <label class="field">
-        <span class="field-label">{t("arc.passwords")}</span>
-        {pws === null ? (
           <div class="cfg-secret">
-            <input class="input mono" readOnly value={listSet ? MASK : ""} placeholder={t("cfg.notSet")} aria-label={`${t("arc.passwords")}: ${listSet ? t("cfg.secretSet") : t("cfg.notSet")}`} />
+            <input id="arc-final" class="input mono" type={revealed ? "text" : "password"} value={finalPw} autocomplete="new-password" onInput={(e) => setFinalPw(e.currentTarget.value)} />
+            {pwSet ? <button type="button" class="btn small" onClick={() => { setClearFinal(true); setFinalPw(null); }}>{t("arc.remove")}</button> : null}
+          </div>
+        )}
+        {finalPw === "" && pwSet && !clearFinal ? <span class="field-hint">{t("arc.emptyIgnored")}</span> : null}
+      </div>
+      <div class="field">
+        <label class="field-label" for="arc-list">{t("arc.passwords")}</label>
+        {clearList ? (
+          <div class="cfg-secret">
+            <input id="arc-list" class="input mono" readOnly value="" placeholder={t("arc.willRemoveList")} />
+            <button type="button" class="btn small" onClick={() => setClearList(false)}>{t("arc.undo")}</button>
+          </div>
+        ) : pws === null ? (
+          <div class="cfg-secret">
+            <input id="arc-list" class="input mono" readOnly value={listSet ? MASK : ""} placeholder={t("cfg.notSet")} aria-label={`${t("arc.passwords")}: ${listSet ? t("cfg.secretSet") : t("cfg.notSet")}`} />
             <button type="button" class="btn small" onClick={() => setPws("")}>{listSet ? t("arc.replaceList") : t("cfg.set")}</button>
+            {listSet ? <button type="button" class="btn small" onClick={() => setClearList(true)}>{t("arc.removeList")}</button> : null}
           </div>
         ) : (
-          <textarea class="input mono" rows={4} spellcheck={false} dir="ltr" value={pws} onInput={(e) => setPws(e.currentTarget.value)} />
+          <>
+            <textarea id="arc-list" class="input mono" rows={4} spellcheck={false} dir="ltr" value={pws} onInput={(e) => setPws(e.currentTarget.value)} />
+            {listSet ? <div class="btn-row"><button type="button" class="btn small" onClick={() => { setClearList(true); setPws(null); }}>{t("arc.removeList")}</button></div> : null}
+          </>
         )}
-        <span class="field-hint">{pws !== null && !revealed ? t("arc.replaceHint") : t("arc.passwordsHint")}</span>
-      </label>
+        <span class="field-hint">{clearList ? "" : pws !== null && !revealed ? t("arc.replaceHint") : pws === "" && listSet ? t("arc.emptyIgnored") : t("arc.passwordsHint")}</span>
+      </div>
       {masked && (pwSet || listSet) ? <div class="btn-row"><button type="button" class="btn small" disabled={busy} onClick={reveal}>{t("cfg.show")}</button></div> : null}
       {revealed ? <div class="btn-row"><button type="button" class="btn small" onClick={async () => pushToast("info", (await copyText(splitPasswords(pws ?? "").join("\n"))) ? t("toast.copied") : t("toast.copyFailed"))}>{t("common.copy")}</button></div> : null}
       <fieldset class="group">
