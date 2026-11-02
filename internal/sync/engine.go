@@ -154,9 +154,10 @@ type Engine struct {
 	cfg   Config
 	log   *slog.Logger
 
-	attach chan struct{} // a browser count crossed zero
-	resync chan state.List
-	bg     sync.WaitGroup
+	attach  chan struct{} // a browser count crossed zero
+	resync  chan state.List
+	refresh chan struct{} // the status should be read again soon
+	bg      sync.WaitGroup
 
 	mu       sync.Mutex
 	client   *jd.Client
@@ -169,13 +170,14 @@ type Engine struct {
 	browsers int
 	status   state.Status
 	unknown  map[string]bool // event ids already logged as unknown
+	lostLog  repeatLog       // keeps a down JDownloader from filling the log
 }
 
 // New returns an engine. client is nil when no address is set yet: the engine
 // then waits for SetURL and reports misconfigured.
 func New(client *jd.Client, store *state.Store, hub *sse.Hub, cfg Config) *Engine {
 	e := &Engine{
-		store: store, hub: hub, cfg: cfg.withDefaults(), attach: make(chan struct{}, 1), resync: make(chan state.List, 8),
+		store: store, hub: hub, cfg: cfg.withDefaults(), attach: make(chan struct{}, 1), resync: make(chan state.List, 8), refresh: make(chan struct{}, 1),
 		client: client, clearCh: make(chan struct{}), unknown: map[string]bool{},
 	}
 	e.log = e.cfg.Logger
@@ -231,15 +233,33 @@ func (e *Engine) Detach() {
 	}
 }
 
-// Resync asks for a reload of one list soon, subject to the usual debounce. The
-// API layer calls it after an action: when JDownloader has dropped an entry on
-// its own it answers an action on it with success and sends no event, and
-// the mirror would otherwise keep the entry until the next safety check. It
-// never blocks and does nothing while no session runs.
+// Resync asks for a reload of one list. The API layer calls it after an action:
+// when JDownloader has dropped an entry on its own it answers an action on it
+// with success and sends no event, and the mirror would otherwise keep the entry
+// until the next safety check.
+//
+// It never blocks. The reload follows the usual debounce (a short quiet time
+// and at least MinReloadGap after the last reload of that list), so a burst of
+// actions causes one reload. Up to eight requests wait in a queue, more are
+// dropped because a reload is on its way anyway. While no session runs
+// (JDownloader is away) the requests wait and the next session serves them, which
+// costs one extra reload after the connection is back.
 func (e *Engine) Resync(list state.List) {
 	select {
 	case e.resync <- list:
 	default: // a reload is queued anyway
+	}
+}
+
+// RefreshStatus asks for the status (controller, speed, switches, speed limit,
+// captchas, dialogs) to be read from JDownloader again soon, within a few hundred
+// milliseconds. The API layer calls it after it changed a switch, the speed limit
+// or the controller, so that the browsers see the result without waiting for the
+// next poll. It never blocks and does nothing while no session runs.
+func (e *Engine) RefreshStatus() {
+	select {
+	case e.refresh <- struct{}{}:
+	default: // a refresh is queued anyway
 	}
 }
 
@@ -450,7 +470,9 @@ func (e *Engine) lost(gen uint64, c *jd.Client, err error) {
 	ever := e.everUp
 	e.mu.Unlock()
 	conn, detail := classify(err, ever, c.BaseURL())
-	e.log.Info("connection to JDownloader ended", "url", c.BaseURL(), "connection", conn, "err", err)
+	if e.lostLog.allow(string(conn)+"|"+detail, time.Now()) {
+		e.log.Info("connection to JDownloader ended", "url", c.BaseURL(), "connection", conn, "err", err)
+	}
 	dl, lg := e.store.Totals()
 	e.update(gen, func(st *state.Status) {
 		st.Connection, st.ConnectionDetail = conn, detail
@@ -496,6 +518,7 @@ func (e *Engine) session(parent context.Context, c *jd.Client, gen uint64) (res 
 	connectedAt := time.Now()
 	e.update(gen, func(st *state.Status) { st.Connection, st.ConnectionDetail = state.ConnConnected, "" })
 	e.log.Info("connected to JDownloader", "url", c.BaseURL())
+	e.lostLog.reset()
 
 	events := make(chan []jd.Event)
 	failed := make(chan error, 1)
@@ -605,4 +628,33 @@ func (e *Engine) logUnknown(ev jd.Event) {
 	if !seen {
 		e.log.Debug("ignoring an unknown JDownloader event", "publisher", ev.Publisher, "event", ev.EventID)
 	}
+}
+
+// repeatLogEvery is how often a state that does not change is logged again.
+const repeatLogEvery = time.Minute
+
+// repeatLog lets a message through when its key changed, and otherwise once per
+// repeatLogEvery. A JDownloader that stays away retries every few seconds, and
+// each retry would say the same.
+type repeatLog struct {
+	mu  sync.Mutex
+	key string
+	at  time.Time
+}
+
+func (r *repeatLog) allow(key string, now time.Time) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if key == r.key && !r.at.IsZero() && now.Sub(r.at) < repeatLogEvery {
+		return false
+	}
+	r.key, r.at = key, now
+	return true
+}
+
+// reset makes the next message count as new, after a connection that worked.
+func (r *repeatLog) reset() {
+	r.mu.Lock()
+	r.key, r.at = "", time.Time{}
+	r.mu.Unlock()
 }

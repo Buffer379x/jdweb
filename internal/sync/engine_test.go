@@ -1683,3 +1683,69 @@ func TestResyncWithoutSessionNeitherBlocksNorPanics(t *testing.T) {
 		t.Fatal("Resync blocks while no session runs")
 	}
 }
+
+// The log stays quiet while JDownloader stays away (about 20 retries here) and
+// speaks again after a connection that worked.
+func TestLostConnectionIsLoggedOncePerState(t *testing.T) {
+	srv := testjd.New(t)
+	srv.Down()
+	var buf lockedBuffer
+	cfg := fast()
+	cfg.Logger = slog.New(slog.NewTextHandler(&buf, nil))
+	cfg.BackoffMin, cfg.BackoffMax = 5*time.Millisecond, 10*time.Millisecond
+	f := start(t, srv, cfg)
+	f.waitConn(t, state.ConnMisconfigured)
+	time.Sleep(300 * time.Millisecond)
+	if n := strings.Count(buf.String(), "connection to JDownloader ended"); n != 1 {
+		t.Fatalf("logged %d times while JDownloader stayed away, want 1", n)
+	}
+
+	srv.Up()
+	f.waitConn(t, state.ConnConnected)
+	srv.Down()
+	f.waitConn(t, state.ConnOffline)
+	time.Sleep(200 * time.Millisecond)
+	if n := strings.Count(buf.String(), "connection to JDownloader ended"); n != 2 {
+		t.Fatalf("logged %d times after a second outage, want 2", n)
+	}
+}
+
+type lockedBuffer struct {
+	mu gosync.Mutex
+	b  strings.Builder
+}
+
+func (l *lockedBuffer) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.Write(p)
+}
+
+func (l *lockedBuffer) String() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.String()
+}
+
+// RefreshStatus brings a changed switch to the browsers without waiting for the
+// poll (here once per hour).
+func TestRefreshStatusReadsTheToolbarSoon(t *testing.T) {
+	srv := testjd.New(t)
+	f := start(t, srv, fast())
+	f.waitConn(t, state.ConnConnected)
+	c := jd.New(srv.URL)
+	if _, err := c.ToggleStopAfter(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(100 * time.Millisecond)
+	if f.e.Status().Toggles.StopAfter {
+		t.Fatal("the test needs a status that does not poll on its own")
+	}
+	t0 := time.Now()
+	f.e.RefreshStatus()
+	eventually(t, "the toggle in the status", func() bool { return f.e.Status().Toggles.StopAfter })
+	if d := time.Since(t0); d > time.Second {
+		t.Errorf("took %v", d)
+	}
+	eventually(t, "status event", func() bool { return f.inbox.has("status", `"stopAfter":true`) })
+}

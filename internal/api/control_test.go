@@ -371,3 +371,32 @@ func TestVariantsAndFolders(t *testing.T) {
 }
 
 func base64Of(s string) string { return base64.StdEncoding.EncodeToString([]byte(s)) }
+
+// After a switch or the speed limit changed, the status is read again at once
+// and does not wait for the next poll (the test's engine polls once per hour).
+func TestToggleAndSpeedLimitRefreshTheStatus(t *testing.T) {
+	e := newEnv(t, withRun, withFastSync)
+	e.waitConnected()
+	statusNow := func() (st struct {
+		Toggles struct {
+			Limit      bool
+			LimitBytes int64
+			StopAfter  bool
+		}
+	}) {
+		e.get("/api/v1/status").json(t, &st)
+		return st
+	}
+	within := func(what string, ok func() bool) {
+		t.Helper()
+		for deadline := time.Now().Add(2 * time.Second); !ok(); time.Sleep(5 * time.Millisecond) {
+			if time.Now().After(deadline) {
+				t.Fatalf("the status did not show %s within 2 s", what)
+			}
+		}
+	}
+	e.expect(e.post("/api/v1/toggles/stop-after", map[string]any{"enabled": true}), 200)
+	within("stop-after", func() bool { return statusNow().Toggles.StopAfter })
+	e.expect(e.post("/api/v1/speedlimit", map[string]any{"enabled": true, "bytesPerSecond": 123456}), 204)
+	within("the speed limit", func() bool { st := statusNow(); return st.Toggles.Limit && st.Toggles.LimitBytes == 123456 })
+}

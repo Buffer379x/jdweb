@@ -169,3 +169,31 @@ func TestPingError(t *testing.T) {
 		}
 	}
 }
+
+// A JDownloader that stays away must not fill the log: the same state is
+// logged once, then at most once per minute, and a changed state at once.
+func TestRepeatLogThrottles(t *testing.T) {
+	var r repeatLog
+	t0 := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	if !r.allow("offline|a", t0) {
+		t.Fatal("the first message must pass")
+	}
+	for i := 1; i < 60; i++ {
+		if r.allow("offline|a", t0.Add(time.Duration(i)*time.Second)) {
+			t.Fatalf("the same state passed again after %d s", i)
+		}
+	}
+	if !r.allow("offline|a", t0.Add(time.Minute)) {
+		t.Error("the same state must be logged again after a minute")
+	}
+	if r.allow("offline|a", t0.Add(time.Minute+time.Second)) {
+		t.Error("the minute starts over after a message")
+	}
+	if !r.allow("misconfigured|b", t0.Add(time.Minute+2*time.Second)) {
+		t.Error("a changed state must pass at once")
+	}
+	r.reset()
+	if !r.allow("misconfigured|b", t0.Add(time.Minute+3*time.Second)) {
+		t.Error("after a working connection the next loss must be logged")
+	}
+}

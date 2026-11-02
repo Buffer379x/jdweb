@@ -231,6 +231,8 @@ func (s *session) follow(ctx context.Context, events <-chan []jd.Event, failed <
 			err = s.browsersChanged(ctx)
 		case list := <-e.resync:
 			s.noteResync(list)
+		case <-e.refresh:
+			s.armPoll(s.lastPoll.Add(pollSoon), false)
 		}
 		if err != nil {
 			return err

@@ -36,6 +36,7 @@ func (s *Server) handleController(action string) http.HandlerFunc {
 			s.fail(w, r, err)
 			return
 		}
+		s.engine.RefreshStatus()
 		noContent(w)
 	}
 }
@@ -65,6 +66,7 @@ func (s *Server) handleSpeedLimit(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
+	s.engine.RefreshStatus()
 	noContent(w)
 }
 
@@ -128,6 +130,7 @@ func (s *Server) handleToggle(name string) http.HandlerFunc {
 			s.fail(w, r, err)
 			return
 		}
+		s.engine.RefreshStatus()
 		s.writeJSON(w, r, http.StatusOK, map[string]bool{"enabled": on})
 	}
 }
