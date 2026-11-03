@@ -32,7 +32,7 @@ test("the form follows the status until the person edits it", () => {
 });
 
 test("every limit JDownloader can hold goes round the form without making it dirty", () => {
-  for (const bytes of [1, 1000, 1500, 51200, 123457, 1048576, 1572864, 5 * 1048576, 99999999, 100 * 1024 * 1024 * 1024]) {
+  for (const bytes of [1, 1000, 1500, 51200, 123457, 1048576, 1572864, 5 * 1048576, 99999999, 2147483647]) {
     const form = initialForm(bytes);
     assert.equal(formBytes(form), bytes, `${bytes} comes back from its own text`);
     assert.equal(isDirty(form, bytes), false, `${bytes}: not dirty without an edit`);

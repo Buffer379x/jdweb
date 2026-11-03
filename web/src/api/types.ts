@@ -7,7 +7,11 @@ export type ListName = "downloads" | "linkgrabber";
 export type LinkState = "disabled" | "extractError" | "failed" | "finished" | "skipped" | "running" | "waiting";
 
 export type Priority = "HIGHEST" | "HIGHER" | "HIGH" | "DEFAULT" | "LOW" | "LOWER" | "LOWEST";
-export const PRIORITIES: readonly Priority[] = ["HIGHEST", "HIGHER", "HIGH", "DEFAULT", "LOW", "LOWER", "LOWEST"];
+/**
+ * What the interface offers. JDownloader tells five levels apart (found against revision 50639): LOW and
+ * LOWEST read back as LOWER and DEFAULT is left out of its JSON. The backend still accepts every Priority.
+ */
+export const PRIORITIES: readonly Priority[] = ["HIGHEST", "HIGHER", "HIGH", "DEFAULT", "LOWER"];
 
 export interface Status {
   connection: ConnectionState;

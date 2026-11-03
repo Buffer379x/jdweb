@@ -1,7 +1,7 @@
 // The settings people change often: folder, simultaneous downloads, speed limit, switches, archive passwords.
 
 import { useEffect, useMemo, useState } from "preact/hooks";
-import { post } from "../../api/client.ts";
+import { post, put } from "../../api/client.ts";
 import { LoadState } from "../../components/LoadState.tsx";
 import { Switch } from "../../components/Switch.tsx";
 import { useGet } from "../../hooks/useLoad.ts";
@@ -15,6 +15,8 @@ import { ConfigRow, RowStates } from "./ConfigRow.tsx";
 import { PageHead, Section } from "./common.tsx";
 
 const GENERAL = "org.jdownloader.settings.GeneralSettings";
+const LINKGRABBER = "org.jdownloader.gui.views.linkgrabber.addlinksdialog.LinkgrabberSettings";
+const AUTO_START = "LinkgrabberAutoStartEnabled";
 const FIELDS: { key: string; label: Key }[] = [
   { key: "DefaultDownloadFolder", label: "gen.folder" },
   { key: "MaxSimultaneDownloads", label: "gen.maxDownloads" },
@@ -103,6 +105,34 @@ function SpeedLimit() {
   );
 }
 
+/** JDownloader's own switch: links that are moved to the download list start by themselves. JDWeb never changes it alone. */
+function AutoStart() {
+  const load = useGet<boolean | null>(
+    `/config?interface=${LINKGRABBER}`,
+    ((r: { entries: ConfigEntry[] }) => {
+      const e = (r.entries ?? []).find((x) => x.key === AUTO_START && x.storage === "");
+      return e ? e.value === true : null;
+    }) as never,
+  );
+  const [busy, setBusy] = useState(false);
+  if (load.data === undefined || load.data === null) return null;
+  const change = async (v: boolean) => {
+    setBusy(true);
+    try {
+      await put("/config", { interface: LINKGRABBER, storage: "", key: AUTO_START, value: v });
+      load.setData(v);
+    } catch (err) {
+      pushToastForError(err);
+    }
+    setBusy(false);
+  };
+  return (
+    <Switch checked={load.data} disabled={!live.value || busy} onChange={(v) => void change(v)} hint={t("gen.autoStart.hint")}>
+      {t("gen.autoStart")}
+    </Switch>
+  );
+}
+
 function Switches() {
   const tg = status.value?.toggles;
   const on = live.value;
@@ -111,6 +141,7 @@ function Switches() {
   );
   return (
     <div class="switch-list">
+      <AutoStart />
       {sw("premium", !!tg?.premium, "toggle.premium", "toggle.premium.hint")}
       {sw("clipboard", !!tg?.clipboard, "toggle.clipboard", "toggle.clipboard.hint")}
       {sw("reconnect", !!tg?.reconnect, "toggle.reconnect", "toggle.reconnect.hint")}

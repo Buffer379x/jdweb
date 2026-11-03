@@ -158,11 +158,13 @@ Ids that JDownloader dropped meanwhile are no error: it answers such an action w
 
 Enums, checked by JDWeb:
 
-- `priority`: `HIGHEST`, `HIGHER`, `HIGH`, `DEFAULT`, `LOW`, `LOWER`, `LOWEST`.
+- `priority`: `HIGHEST`, `HIGHER`, `HIGH`, `DEFAULT`, `LOW`, `LOWER`, `LOWEST`. JDownloader tells only five levels apart (found against revision 50639): `LOW` and `LOWEST` read back as `LOWER`, and `DEFAULT` is left out of its JSON, so a missing `priority` field means `DEFAULT`. The web interface offers `HIGHEST`, `HIGHER`, `HIGH`, `DEFAULT`, `LOWER`; the backend accepts all seven.
 - `cleanup`: `action` is one of `DELETE_ALL`, `DELETE_DISABLED`, `DELETE_FAILED`, `DELETE_FINISHED`, `DELETE_OFFLINE`, `DELETE_DUPE`, `DELETE_MODE`. `mode` is one of `REMOVE_LINKS_ONLY`, `REMOVE_LINKS_AND_RECYCLE_FILES`, `REMOVE_LINKS_AND_DELETE_FILES` and has no default: it decides what happens to files on disk, so a request without it is a 400. `selection` is one of `SELECTED`, `UNSELECTED`, `ALL`, `NONE`. Only `ALL` may go without ids (it ignores them). `SELECTED`, `UNSELECTED` and `NONE` need at least one id, otherwise 400: JDownloader reads an empty selection as "everything", and nobody should clean up everything by accident. To clean up everything, say `ALL`.
 - `unskip` `reason`: empty (all) or one of the skip reasons of JDownloader.
 
 `rename-*` names and `new-package` names must not be empty. `password` may be an empty string, which clears it, but must be present. `clear` empties the whole linkgrabber, `to-downloads` with `start:true` also starts the downloads. `add-variant` without `afterLinkId` and `destPackageId` puts the copy behind the original, in its package.
+
+`to-downloads` with `start:false` does not start the links when JDownloader's own setting `LinkgrabberAutoStartEnabled` (interface `org.jdownloader.gui.views.linkgrabber.addlinksdialog.LinkgrabberSettings`, JDownloader's default: on) is on: JDownloader then starts what is moved, whatever the caller asked for. JDWeb never changes that setting itself; the settings page "General" has a switch for it. The same holds for `autostart:false` in `/linkgrabber/add`.
 
 Additional routes:
 
@@ -174,7 +176,7 @@ Additional routes:
 
 ## Captchas
 
-- `GET /captchas` returns a list of `{id,hoster,type,kind,explain?,timeout,created,remaining}`, without pictures.
+- `GET /captchas` returns a list of `{id,hoster,type,kind,explain?,timeout,created,remaining}`, without pictures. `timeout` and `remaining` are milliseconds according to the JDownloader reference; this is unconfirmed, because no image captcha could be triggered against a real JDownloader so far.
 - `GET /captchas/{id}` returns `{id,hoster,type,kind:"image|interactive",imageDataUrl?,explain?,timeout,created,remaining}`. `imageDataUrl` is a `data:image/...` URL and only present for `image`. `kind` is `interactive` for challenges the browser cannot show as a picture (reCAPTCHA, hCaptcha, click and similar) and when JDownloader has no usable picture. Interactive captchas can be explained and skipped, not solved here. The classification by type name is a guess until real jobs are seen (Concept R7).
 - `POST /captchas/{id}/solve` with `{result}`: 204.
 - `POST /captchas/{id}/skip` with `{type}`: 204. `type` is one of `SINGLE`, `BLOCK_HOSTER`, `BLOCK_ALL_CAPTCHAS`, `BLOCK_PACKAGE`, `REFRESH`, `STOP_CURRENT_ACTION`, `TIMEOUT`.
@@ -211,7 +213,8 @@ A captcha that was solved or timed out meanwhile is `404 jd_error` with a messag
 
 ## Settings
 
-- `GET /config?q=&interface=&extensions=` returns `{entries:[{interface,storage,key,type,abstractType,docs,value,defaultValue,enumLabel?,enumOptions?,secret}]}`. `q` is a regular expression on interface and key (at most 256 characters), `interface` restricts to one config interface, `extensions=true` includes the extensions. The answer is gzip-compressed when accepted.
+- `GET /config?q=&interface=&extensions=` returns `{entries:[{interface,storage,key,type,abstractType,docs,value,defaultValue,enumLabel?,enumOptions?,secret}]}`. `q` is a regular expression that JDownloader matches against the whole of interface and key, so a word needs wildcards (`.*Word.*`); the web interface filters in the browser instead (at most 256 characters), `interface` restricts to one config interface, `extensions=true` includes the extensions. The answer is gzip-compressed when accepted.
+- Entries of extensions (`extensions=true`) have a `storage` such as `cfg/org.jdownloader.extensions.extraction.ExtractionExtension`; reads, writes, resets and reveals must name it. The global archive password list is `ExtractionConfig.PasswordList` there; JDownloader adds every password that worked to it.
 - Masking: an entry whose key matches `password|apikey|secret|token` (case-insensitive) and whose `abstractType` is `STRING` or `STRING_LIST` has `secret:true`, and `value` and `defaultValue` show `"••••••"` (six bullets, U+2022) for a text and `["••••••"]` for a list. An empty or null value stays as it is, so the browser can tell "not set" from "set". Numbers and switches are never masked, whatever the key.
 - `POST /config/reveal` with `{interface,storage,key}` returns `{value}` with the real value. Only for keys that match the pattern, otherwise 400. Every reveal is logged with interface and key, never the value.
 - `PUT /config` with `{interface,storage,key,value}`: 204. `storage` is empty for the general config. A value that is the mask, or a list that holds it, is a 400 and is not sent: the browser must send a new value or leave the setting alone. JDownloader refusing the value (wrong type, unknown key) is a 400 with a hint.

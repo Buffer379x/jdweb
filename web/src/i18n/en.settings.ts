@@ -47,6 +47,8 @@ export const enMore: Record<keyof typeof deMore, string> = {
   "gen.limitSaved": "Speed limit saved.",
   "gen.limitOn": "Switch on",
   "gen.limitText": "Limits the speed of all downloads together. The number goes to JDownloader in bytes per second.",
+  "gen.autoStart": "Start links as soon as they are moved to downloads",
+  "gen.autoStart.hint": "JDownloader's own switch: whatever is moved to the download list starts by itself, even when do not start was chosen. JDWeb never changes it on its own.",
   "gen.switches": "Switches",
   "gen.archives": "Archive passwords",
   "gen.archivePassword": "Add a password",

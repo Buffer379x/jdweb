@@ -180,7 +180,7 @@ const base = {
   "prio.HIGH": "High",
   "prio.DEFAULT": "Normal",
   "prio.LOW": "Low",
-  "prio.LOWER": "Lower",
+  "prio.LOWER": "Low",
   "prio.LOWEST": "Lowest",
   "variant.use": "Use variant",
   "variant.addCopy": "Add as copy",

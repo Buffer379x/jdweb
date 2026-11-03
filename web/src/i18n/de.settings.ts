@@ -47,6 +47,8 @@ export const deMore = {
   "gen.limitSaved": "Tempolimit gespeichert.",
   "gen.limitOn": "Einschalten",
   "gen.limitText": "Begrenzt das Tempo aller Downloads zusammen. Die Zahl wird in Bytes pro Sekunde an JDownloader gegeben.",
+  "gen.autoStart": "Links beim Übernehmen sofort starten",
+  "gen.autoStart.hint": "Schalter von JDownloader selbst: Was in die Download-Liste übernommen wird, startet von allein, auch wenn beim Übernehmen „nicht starten“ gewählt wurde. JDWeb ändert ihn nie von sich aus.",
   "gen.switches": "Schalter",
   "gen.archives": "Archiv-Passwörter",
   "gen.archivePassword": "Passwort hinzufügen",
