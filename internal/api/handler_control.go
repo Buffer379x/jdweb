@@ -9,8 +9,9 @@ import (
 	"github.com/Buffer379x/jdweb/internal/jd"
 )
 
-// maxSpeedLimit is the highest limit accepted, 100 GiB/s.
-const maxSpeedLimit = 100 << 30
+// maxSpeedLimit is the highest limit accepted: JDownloader's DownloadSpeedLimit
+// is a 32-bit integer and refuses more (found against revision 50639).
+const maxSpeedLimit = 1<<31 - 1
 
 // premiumOffWait is how long switching premium off waits for an answer.
 // JDownloader asks for a confirmation in a dialog and does not answer until

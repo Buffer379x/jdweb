@@ -3,8 +3,8 @@
 export type SpeedUnit = "KB" | "MB";
 const KB = 1024;
 const MB = 1024 * 1024;
-/** JDWeb accepts 0 to 100 GiB/s (docs/api.md). */
-export const MAX_BYTES_PER_SECOND = 100 * 1024 * 1024 * 1024;
+/** JDWeb accepts 0 to 2147483647 bytes per second, the 32-bit limit of JDownloader (docs/api.md). */
+export const MAX_BYTES_PER_SECOND = 2147483647;
 
 /** A decimal number typed by a person: "1,5" and "1.5" are the same. Null when it is not one. */
 export function parseDecimal(text: string): number | null {

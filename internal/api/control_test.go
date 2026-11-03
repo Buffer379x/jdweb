@@ -43,7 +43,9 @@ func TestSpeedLimit(t *testing.T) {
 	for name, body := range map[string]any{
 		"negative": map[string]any{"enabled": true, "bytesPerSecond": -1},
 		"huge":     map[string]any{"enabled": true, "bytesPerSecond": int64(1) << 50},
-		"string":   `{"enabled":true,"bytesPerSecond":"5"}`,
+		// JDownloader's limit is a 32-bit integer and refuses more (revision 50639).
+		"over 32 bit": map[string]any{"enabled": true, "bytesPerSecond": int64(1) << 31},
+		"string":      `{"enabled":true,"bytesPerSecond":"5"}`,
 	} {
 		e.jd.ResetCalls()
 		if r := e.post("/api/v1/speedlimit", body); r.status != 400 {

@@ -122,7 +122,7 @@ A stream belongs to the session that opened it. When that session ends (logout, 
 ## Control
 
 - `POST /controller/{start,stop,pause,resume}`: 204.
-- `POST /speedlimit` with `{enabled,bytesPerSecond}`: 204. Always bytes per second, 0 to 100 GiB/s. `bytesPerSecond` 0 only switches. Switching on with no limit ever set is a 400.
+- `POST /speedlimit` with `{enabled,bytesPerSecond}`: 204. Always bytes per second, 0 to 2147483647 (JDownloader keeps the limit in a 32-bit integer and refuses more, found against revision 50639). `bytesPerSecond` 0 only switches. Switching on with no limit ever set is a 400.
 - `POST /toggles/{premium,clipboard,reconnect,stop-after}` with an optional `{enabled}`: answers `{enabled}` with the new state. JDownloader can only flip a switch. With `enabled` in the body a switch that has this state already is left alone, so a browser with an old view cannot flip it the wrong way. Switching premium off makes JDownloader ask for confirmation in a dialog and not answer: after 3 s the answer is `202 {"pending":true}` and the question shows up in `/dialogs`.
 - `POST /reconnect`: 204.
 
