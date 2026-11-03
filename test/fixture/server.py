@@ -6,6 +6,11 @@ Python standard library only. Listens on port 8000.
   content is a pure function of the path and the size, so equal requests
   return equal bytes. Content-Length and HEAD are supported.
 * Paths below ``/slow/`` are throttled to about 2 MiB/s.
+* ``/archiv-big.zip`` returns a small ZIP that holds 768 MiB of zeros, so that
+  extracting it takes a few seconds (built on first use).
+* ``/offline/<name>`` answers 404 to HEAD and GET (a link that is offline).
+  ``/gone/<name>`` answers HEAD with 200 and GET with 404 (online at the
+  check, gone at the download).
 * ``/archiv.zip`` returns a genuine, valid ZIP archive built in memory.
 * ``/archiv-pw.zip`` returns the same files in a ZIP archive that is encrypted
   with the password ``jdweb-pw`` (traditional ZipCrypto, which every extractor
@@ -16,6 +21,7 @@ import hashlib
 import io
 import posixpath
 import struct
+import threading
 import time
 import zlib
 import zipfile
@@ -114,6 +120,28 @@ def build_encrypted_zip(password=ZIP_PASSWORD):
 ZIP_PW_BYTES = build_encrypted_zip()
 
 
+BIG_MIB = 768
+_big_lock = threading.Lock()
+_big_bytes = None
+
+
+def big_zip():
+    """A ZIP of a few hundred KB that extracts to BIG_MIB MiB; built once."""
+    global _big_bytes
+    with _big_lock:
+        if _big_bytes is None:
+            buf = io.BytesIO()
+            with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED, compresslevel=1) as zf:
+                info = zipfile.ZipInfo("big/zeros.bin", ZIP_DATE)
+                info.compress_type = zipfile.ZIP_DEFLATED
+                with zf.open(info, "w", force_zip64=True) as f:
+                    chunk = bytes(1 << 20)
+                    for _ in range(BIG_MIB):
+                        f.write(chunk)
+            _big_bytes = buf.getvalue()
+        return _big_bytes
+
+
 def block_for(path):
     """A 1 KiB block derived from the path; the file is this block repeated."""
     seed = hashlib.sha256(path.encode("utf-8")).hexdigest().encode("ascii")
@@ -150,8 +178,8 @@ class Handler(BaseHTTPRequestHandler):
         """
         parts = urlsplit(self.path)
         path = unquote(parts.path)
-        if path in ("/archiv.zip", "/archiv-pw.zip"):
-            data = ZIP_BYTES if path == "/archiv.zip" else ZIP_PW_BYTES
+        if path in ("/archiv.zip", "/archiv-pw.zip", "/archiv-big.zip"):
+            data = {"/archiv.zip": lambda: ZIP_BYTES, "/archiv-pw.zip": lambda: ZIP_PW_BYTES, "/archiv-big.zip": big_zip}[path]()
             return path, len(data), "application/zip", False, lambda: iter((data,))
         query = parse_qs(parts.query)
         try:
@@ -172,7 +200,11 @@ class Handler(BaseHTTPRequestHandler):
 
         return path, size, "application/octet-stream", path.startswith("/slow/"), chunks
 
-    def _send_head(self):
+    def _send_head(self, head=False):
+        path = unquote(urlsplit(self.path).path)
+        if path.startswith("/offline/") or (path.startswith("/gone/") and not head):
+            self.send_error(404, "not here")
+            return None
         path, length, ctype, slow, chunks = self._target()
         if length is None:
             self.send_error(400, "invalid size")
@@ -186,7 +218,7 @@ class Handler(BaseHTTPRequestHandler):
         return slow, chunks
 
     def do_HEAD(self):
-        self._send_head()
+        self._send_head(head=True)
 
     def do_GET(self):
         res = self._send_head()

@@ -48,5 +48,18 @@ try:
 except RuntimeError:
     check("wrong password is refused", True)
 check("deterministic", server.build_encrypted_zip() == body)
+status, ctype, body = fetch("/archiv-big.zip")
+z = zipfile.ZipFile(io.BytesIO(body))
+check("big zip is small and holds 768 MiB", status == 200 and len(body) < 4 << 20 and z.infolist()[0].file_size == server.BIG_MIB << 20)
+
+
+def head(path):
+    c = http.client.HTTPConnection("127.0.0.1", PORT)
+    c.request("HEAD", path)
+    return c.getresponse().status
+
+
+check("offline link", head("/offline/a.bin") == 404 and fetch("/offline/a.bin")[0] == 404)
+check("gone link: online at the check, gone at the download", head("/gone/a.bin") == 200 and fetch("/gone/a.bin")[0] == 404)
 print("ALL OK" if ok else "FAILURES")
 sys.exit(0 if ok else 1)
