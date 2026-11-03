@@ -277,7 +277,7 @@ func TestCleanupAllEnumValuesReachJDownloader(t *testing.T) {
 	s := e.seed()
 	for _, a := range []string{"DELETE_ALL", "DELETE_DISABLED", "DELETE_FAILED", "DELETE_FINISHED", "DELETE_OFFLINE", "DELETE_DUPE", "DELETE_MODE"} {
 		for _, m := range []string{"REMOVE_LINKS_ONLY", "REMOVE_LINKS_AND_RECYCLE_FILES", "REMOVE_LINKS_AND_DELETE_FILES"} {
-			for _, sel := range []string{"SELECTED", "UNSELECTED", "ALL", "NONE"} {
+			for _, sel := range []string{"SELECTED", "ALL", "NONE"} {
 				e.jd.ResetCalls()
 				r := e.post("/api/v1/downloads/actions/cleanup", map[string]any{
 					"linkIds": ids(s.dl...), "action": a, "mode": m, "selection": sel,
@@ -369,5 +369,29 @@ func TestAddVariantDefaultsToThePlaceOfTheOriginal(t *testing.T) {
 	got := argsJSON(e.lastCall("/linkgrabberv2/addVariantCopy"))
 	if want := fmt.Sprintf(`[%d,%d,%d,"MP3"]`, s.lg[1], s.lg[1], s.lgPkg); got != want {
 		t.Fatalf("params = %s, want %s", got, want)
+	}
+}
+
+// JDownloader refuses the selection type UNSELECTED ("not yet supported",
+// revision 50639). JDWeb asks for SELECTED on the links that are not selected.
+func TestCleanupUnselectedBecomesSelectedOnTheOthers(t *testing.T) {
+	e := newEnv(t, withRun, withFastSync)
+	s := e.seed()
+	e.waitConnected()
+	eventually(t, "both links in the mirror", func() bool { return len(e.mirror.Snapshot(state.Downloads).DlLinks) == 2 })
+	body := func(links ...int64) map[string]any {
+		return map[string]any{"linkIds": ids(links...), "action": "DELETE_ALL", "mode": "REMOVE_LINKS_ONLY", "selection": "UNSELECTED"}
+	}
+	e.jd.ResetCalls()
+	e.expect(e.post("/api/v1/downloads/actions/cleanup", body(s.dl[0])), 204)
+	want := fmt.Sprintf(`[[%d],[],"DELETE_ALL","REMOVE_LINKS_ONLY","SELECTED"]`, s.dl[1])
+	if got := argsJSON(e.lastCall("/downloadsV2/cleanup")); got != want {
+		t.Errorf("params = %s, want %s", got, want)
+	}
+	// A selected package covers its links: nothing is left, and an empty SELECTED (= everything) is never sent.
+	e.jd.ResetCalls()
+	e.expect(e.post("/api/v1/downloads/actions/cleanup", map[string]any{"packageIds": ids(s.dlPkg), "action": "DELETE_ALL", "mode": "REMOVE_LINKS_ONLY", "selection": "UNSELECTED"}), 204)
+	if n := len(e.jdCalls("/downloadsV2/cleanup")); n != 0 {
+		t.Errorf("JDownloader was called %d times with nothing to clean", n)
 	}
 }

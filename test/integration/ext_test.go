@@ -38,12 +38,25 @@ func (a *app) extStatus(t testing.TB, name string) string {
 	return k.ExtractionStatus
 }
 
+// pinArchive sets the extract path of the archive in l. JDownloader keeps the
+// settings of an archive by its id across runs, the extract path of an earlier
+// test included (found here: a path that no longer exists ends in ERROR).
+func (a *app) pinArchive(t testing.TB, l dlList, extractPath string) {
+	t.Helper()
+	var arcs []archiveInfo
+	t0 := time.Now()
+	eventually(t, "JDownloader knows the archive", 30*time.Second, func() bool { arcs = a.archives(t, l); return len(arcs) == 1 })
+	t.Logf("archive known after %v", time.Since(t0).Round(time.Second))
+	t.Logf("archive %s: stored extract path %q", arcs[0].ArchiveName, arcs[0].Settings.ExtractPath)
+	a.must(t, "PUT", "/api/v1/extraction/archives/"+arcs[0].ArchiveID, map[string]any{"extractPath": extractPath}, nil, 204)
+}
+
 func (a *app) downloadFinished(t testing.TB, l dlList, name string) {
 	t.Helper()
 	a.finish(t, l, name)
 	k, _ := a.downloads(t).link(name)
 	if k.State != "finished" {
-		t.Fatalf("%s: state %s (%s)", name, k.State, k.Status)
+		t.Fatalf("%s: state %s (%s), extraction %q", name, k.State, k.Status, k.ExtractionStatus)
 	}
 }
 
@@ -53,6 +66,7 @@ func TestEXT01_Zip(t *testing.T) {
 	a := shared(t)
 	dir := directory("ext01")
 	l := a.stage(t, prefix+"ext01", dir, fx("/archiv.zip"))
+	a.pinArchive(t, l, dir)
 	a.downloadFinished(t, l, "archiv.zip")
 	arcs := a.archives(t, a.downloads(t))
 	if len(arcs) != 1 {
@@ -109,7 +123,7 @@ func TestEXT02_Password(t *testing.T) {
 		t.Fatalf("archives = %+v", arcs)
 	}
 	id := arcs[0].ArchiveID
-	a.must(t, "PUT", "/api/v1/extraction/archives/"+id, map[string]any{"finalPassword": "wrong-pw", "passwords": []string{}}, nil, 204)
+	a.must(t, "PUT", "/api/v1/extraction/archives/"+id, map[string]any{"finalPassword": "wrong-pw", "passwords": []string{}, "extractPath": dir}, nil, 204)
 	a.downloadFinished(t, l, "archiv-pw.zip")
 	var res struct {
 		Started map[string]bool `json:"started"`
@@ -171,6 +185,7 @@ func TestEXT03_CancelAndNow(t *testing.T) {
 	a := shared(t)
 	dir := directory("ext03")
 	l := a.stage(t, prefix+"ext03", dir, fx("/archiv-big.zip"))
+	a.pinArchive(t, l, dir)
 	a.downloadFinished(t, l, "archiv-big.zip")
 	var res struct {
 		Started map[string]bool `json:"started"`

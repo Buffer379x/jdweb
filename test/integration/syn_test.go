@@ -6,6 +6,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -244,4 +246,57 @@ func TestCAP_NoCaptchaToSolve(t *testing.T) {
 			t.Errorf("%s %s = %d", c.m, c.p, st)
 		}
 	}
+}
+
+// T-SYN-02: JDownloader not reachable at start: offline, no crash, the process stays up.
+func TestSYN02_StartWithoutJDownloader(t *testing.T) {
+	addr, err := freePort()
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := startApp(t, appOpts{jdURL: "http://" + addr}) // nobody listens there
+	waitFor(t, "offline", 20*time.Second, func() bool { return a.status(t).Connection == state.ConnOffline })
+	time.Sleep(4 * time.Second)
+	st := a.status(t)
+	if st.Connection != state.ConnOffline {
+		t.Errorf("status = %+v", st)
+	}
+	select {
+	case <-a.done:
+		t.Fatal("jdweb ended")
+	default:
+	}
+	t.Logf("T-SYN-02 offline, detail %q", st.ConnectionDetail)
+}
+
+// T-SYN-03 (the part testable here): another service at the address is told apart from an offline JDownloader.
+func TestSYN03_OtherServiceAtTheAddress(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+	a := startApp(t, appOpts{jdURL: srv.URL})
+	waitFor(t, "a state other than syncing", 20*time.Second, func() bool {
+		c := a.status(t).Connection
+		return c == state.ConnMisconfigured || c == state.ConnOffline
+	})
+	st := a.status(t)
+	t.Logf("T-SYN-03 other service: connection=%s detail=%q", st.Connection, st.ConnectionDetail)
+	if st.Connection != state.ConnMisconfigured {
+		t.Errorf("connection = %s, want misconfigured", st.Connection)
+	}
+}
+
+// T-SYN-12: two streams (two tabs) get the same changes.
+func TestSYN12_TwoTabs(t *testing.T) {
+	cleanJD(t)
+	a := shared(t)
+	s1, s2 := a.openStream(t), a.openStream(t)
+	m1, m2 := s1.mark(), s2.mark()
+	a.limit(t, 77*1024)
+	s1.wait(t, m1, 5*time.Second, "status", `"limitBytes":78848`)
+	s2.wait(t, m2, 5*time.Second, "status", `"limitBytes":78848`)
+	a.add(t, prefix+"syn12", directory("syn12"), fx("/it-syn12.bin"))
+	s1.wait(t, m1, 10*time.Second, "structure", "linkgrabber")
+	s2.wait(t, m2, 10*time.Second, "structure", "linkgrabber")
 }

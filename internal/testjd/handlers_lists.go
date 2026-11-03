@@ -376,6 +376,9 @@ func registerListHandlers(prefix string, l List) {
 		if !validCleanup[action] || !validMode[mode] || !validSelection[sel] {
 			return nil, badParams(action + " " + mode + " " + sel)
 		}
+		if sel == "UNSELECTED" { // like revision 50639
+			return nil, badParams("SelectionType UNSELECTED not yet supported")
+		}
 		s.cleanup(l, linkIDs, pkgIDs, action, sel)
 		return "", nil
 	})

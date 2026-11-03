@@ -334,7 +334,7 @@ var (
 
 // runCleanup validates all three enums before JDownloader sees them. The mode
 // has no default on purpose: whether files on disk are deleted must be said.
-func runCleanup(ctx context.Context, _ *Server, c *jd.Client, list state.List, b *actionBody) (any, error) {
+func runCleanup(ctx context.Context, srv *Server, c *jd.Client, list state.List, b *actionBody) (any, error) {
 	a, m, sel := jd.CleanupAction(b.Action), jd.CleanupMode(b.Mode), jd.SelectionType(b.Selection)
 	if b.Mode == "" {
 		return nil, badRequest("mode is required. It decides what happens to files on disk: %s.", joinEnum(cleanupModes))
@@ -355,7 +355,46 @@ func runCleanup(ctx context.Context, _ *Server, c *jd.Client, list state.List, b
 	if len(b.LinkIDs) > maxIDs || len(b.PackageIDs) > maxIDs {
 		return nil, badRequest("Too many ids in one request (at most %d).", maxIDs)
 	}
-	return nil, ops(c, list).Cleanup(ctx, b.links(), b.packages(), a, m, sel)
+	links, pkgs := b.links(), b.packages()
+	if sel == jd.SelectionUnselected {
+		// JDownloader answers UNSELECTED with "SelectionType UNSELECTED not yet
+		// supported" (revision 50639). The same is asked with SELECTED on the
+		// links that are not selected, taken from the mirror.
+		links, pkgs, sel = srv.unselectedLinks(list, links, pkgs), nil, jd.SelectionSelected
+		if len(links) == 0 {
+			return nil, nil // nothing is unselected; an empty SELECTED would mean everything
+		}
+	}
+	return nil, ops(c, list).Cleanup(ctx, links, pkgs, a, m, sel)
+}
+
+// unselectedLinks returns the ids of all links of the list that are neither
+// selected nor in a selected package.
+func (s *Server) unselectedLinks(list state.List, links, pkgs []int64) []int64 {
+	skip := make(map[string]bool, len(links)+len(pkgs))
+	for _, id := range links {
+		skip["l"+idString(id)] = true
+	}
+	for _, id := range pkgs {
+		skip["p"+idString(id)] = true
+	}
+	var out []int64
+	add := func(id, pkg string) {
+		if skip["l"+id] || skip["p"+pkg] {
+			return
+		}
+		if n, err := parseID(id); err == nil {
+			out = append(out, n)
+		}
+	}
+	snap := s.mirror.Snapshot(list)
+	for _, l := range snap.DlLinks {
+		add(l.ID, l.PackageID)
+	}
+	for _, l := range snap.LgLinks {
+		add(l.ID, l.PackageID)
+	}
+	return out
 }
 
 func joinEnum[T ~string](vs []T) string {

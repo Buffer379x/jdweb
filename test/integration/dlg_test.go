@@ -84,8 +84,14 @@ func TestDLG01_FileExists(t *testing.T) {
 	}
 	dir := directory("dlg01")
 	l := a.stage(t, prefix+"dlg01", dir, fx("/archiv.zip"))
-	a.downloadFinished(t, l, "archiv.zip")
-	eventually(t, "first extraction", 30*time.Second, func() bool { return strings.Contains(a.extStatus(t, "archiv.zip"), "SUCCESS") })
+	// JDownloader keeps an extracted archive by its name for a while (a second one of the same name is not
+	// recognised for minutes, found here), so this test has an archive name of its own.
+	a.action(t, "downloads", "rename-link", map[string]any{"linkId": l.Links[0].ID, "name": "it-dlg-archive.zip"})
+	eventually(t, "renamed", 10*time.Second, func() bool { _, ok := a.downloads(t).link("it-dlg-archive.zip"); return ok })
+	l = a.downloads(t)
+	a.pinArchive(t, l, dir)
+	a.downloadFinished(t, l, "it-dlg-archive.zip")
+	eventually(t, "first extraction", 30*time.Second, func() bool { return strings.Contains(a.extStatus(t, "it-dlg-archive.zip"), "SUCCESS") })
 	var res struct {
 		Started map[string]bool `json:"started"`
 	}
@@ -99,7 +105,7 @@ func TestDLG01_FileExists(t *testing.T) {
 	var d dialogDTO
 	a.must(t, "GET", "/api/v1/dialogs/"+list[0].ID, nil, &d, 200)
 	t.Logf("T-DLG-01 answer fields: %v", d.Answer)
-	a.must(t, "POST", "/api/v1/dialogs/"+list[0].ID+"/answer", map[string]any{"data": map[string]any{"closereason": "CANCEL"}}, nil, 204)
+	a.must(t, "POST", "/api/v1/dialogs/"+list[0].ID+"/answer", map[string]any{"data": map[string]any{"closereason": "OK", "action": "OVERWRITE_FILE"}}, nil, 204)
 	eventually(t, "dialog gone", 15*time.Second, func() bool { return a.status(t).Dialogs == 0 })
 	// Further questions come one after the other (docs/api.md): answer until none is left.
 	for i := 0; i < 5; i++ {
@@ -109,6 +115,11 @@ func TestDLG01_FileExists(t *testing.T) {
 			break
 		}
 		t.Logf("T-DLG-01 next dialog: %s", list[0].Properties["title"])
-		a.must(t, "POST", "/api/v1/dialogs/"+list[0].ID+"/answer", map[string]any{"data": map[string]any{"closereason": "CANCEL"}}, nil, 204)
+		a.must(t, "POST", "/api/v1/dialogs/"+list[0].ID+"/answer", map[string]any{"data": map[string]any{"closereason": "OK", "action": "OVERWRITE_FILE"}}, nil, 204)
 	}
+	// Overwrite is an answer that ends the extraction cleanly; a cancel leaves the archive in an error state in JDownloader.
+	eventually(t, "the extraction ends", 30*time.Second, func() bool {
+		return a.extStatus(t, "it-dlg-archive.zip") != "" && a.extStatus(t, "it-dlg-archive.zip") != "RUNNING"
+	})
+	t.Logf("T-DLG-01 extraction status after answering OVERWRITE_FILE: %q", a.extStatus(t, "it-dlg-archive.zip"))
 }
