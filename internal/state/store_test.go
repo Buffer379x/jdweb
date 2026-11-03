@@ -1060,3 +1060,17 @@ func TestRecordedFailedLink(t *testing.T) {
 		t.Errorf("after a restart = %+v", l)
 	}
 }
+
+// A reset names no field: the list is loaded again, the event is no unknown one.
+func TestResetEventReloadsTheList(t *testing.T) {
+	s := loaded(t)
+	for _, id := range []string{"LINK_UPDATE.reset", "PACKAGE_UPDATE.reset"} {
+		eff := s.ApplyEvent(dlEvent(id, fmt.Sprintf(`{"uuid":%d}`, linkA)))
+		if eff.Reload != state.Downloads || eff.Unknown {
+			t.Errorf("%s: effect = %+v", id, eff)
+		}
+	}
+	if eff := s.ApplyEvent(lgEvent("LINK_UPDATE.reset", `{"uuid":1}`)); eff.Reload != state.Linkgrabber || eff.Unknown {
+		t.Errorf("linkgrabber: %+v", eff)
+	}
+}

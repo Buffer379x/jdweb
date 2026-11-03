@@ -245,6 +245,11 @@ func (s *Store) applyDelta(ev jd.Event, list List) Effect {
 	if !isLink && kind != "PACKAGE_UPDATE" {
 		return Effect{Unknown: true}
 	}
+	if field == "reset" {
+		// A reset (recorded in revision 50639) changes several fields at once
+		// without naming them: the list is loaded again.
+		return Effect{Reload: list}
+	}
 	d, clean, ok := decodeDelta(ev.EventData)
 	if !ok || d.UUID == nil {
 		return Effect{Unknown: true}
