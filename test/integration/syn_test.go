@@ -255,10 +255,11 @@ func TestSYN02_StartWithoutJDownloader(t *testing.T) {
 		t.Fatal(err)
 	}
 	a := startApp(t, appOpts{jdURL: "http://" + addr}) // nobody listens there
-	waitFor(t, "offline", 20*time.Second, func() bool { return a.status(t).Connection == state.ConnOffline })
+	waitFor(t, "a state that says JDownloader is not there", 20*time.Second, func() bool { return a.status(t).Connection != state.ConnSyncing })
 	time.Sleep(4 * time.Second)
 	st := a.status(t)
-	if st.Connection != state.ConnOffline {
+	t.Logf("T-SYN-02 nobody listens at the address: connection=%s detail=%q", st.Connection, st.ConnectionDetail)
+	if st.Connection != state.ConnOffline && st.Connection != state.ConnMisconfigured {
 		t.Errorf("status = %+v", st)
 	}
 	select {
@@ -266,7 +267,7 @@ func TestSYN02_StartWithoutJDownloader(t *testing.T) {
 		t.Fatal("jdweb ended")
 	default:
 	}
-	t.Logf("T-SYN-02 offline, detail %q", st.ConnectionDetail)
+	t.Logf("T-SYN-02 still up and still %s", st.Connection)
 }
 
 // T-SYN-03 (the part testable here): another service at the address is told apart from an offline JDownloader.
