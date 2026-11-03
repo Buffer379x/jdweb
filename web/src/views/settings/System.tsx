@@ -5,6 +5,7 @@ import { ConfirmDialog } from "../../components/Dialog.tsx";
 import { Lamp } from "../../components/Lamp.tsx";
 import { LoadState } from "../../components/LoadState.tsx";
 import { useGet } from "../../hooks/useLoad.ts";
+import { errorText } from "../../store/errors.ts";
 import { formatBytes, formatDate } from "../../lib/format.ts";
 import { availableActions, formatUptime, heapPercent } from "../../lib/system.ts";
 import { lang, t, type Key } from "../../i18n/index.ts";
@@ -165,7 +166,10 @@ function UpdateBox() {
     <div class="update-box">
       <p class="st">
         <Lamp tone={avail ? "accent" : "muted"} />
-        <span role="status">{upd.data === undefined ? t("boot.loading") : avail ? t("sys.updateAvailable") : t("sys.updateNone")}</span>
+        <span role="status">
+          {upd.data === undefined ? (upd.error ? `${t("state.loadFailed")} ${errorText(upd.error)}` : t("boot.loading")) : avail ? t("sys.updateAvailable") : t("sys.updateNone")}
+          {upd.data !== undefined && upd.error ? ` ${t("state.stale")}` : ""}
+        </span>
       </p>
       <div class="btn-row">
         <button type="button" class="btn" disabled={!live.value || checking} onClick={check}>{checking ? t("sys.checking") : t("sys.updateCheck")}</button>
