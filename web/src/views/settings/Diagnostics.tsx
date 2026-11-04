@@ -128,7 +128,9 @@ function ConnectionForm({ c, onChanged }: { c: Conn; onChanged: () => void }) {
     setChecking(false);
   };
   const shown = result ?? c;
-  const ok = shown.connection === "connected" || shown.connection === "syncing";
+  // Only "connected" is a success. "syncing" after the tries (or in the saved state) is not known yet.
+  const ok = shown.connection === "connected";
+  const pending = shown.connection === "syncing";
   return (
     <form onSubmit={save} class="conn-form">
       <p class="muted">{t("conn.intro")}</p>
@@ -143,7 +145,8 @@ function ConnectionForm({ c, onChanged }: { c: Conn; onChanged: () => void }) {
       <div id="conn-msg" role="status" aria-live="polite" class="conn-msg">
         {error ? <p class="form-error" role="alert">{error}</p> : null}
         {!error && checking ? <p class="muted">{t("conn.checking")}</p> : null}
-        {!error && !checking && result ? (
+        {!error && !checking && result && pending ? <p class="muted">{t("conn.stillChecking")}</p> : null}
+        {!error && !checking && result && !pending ? (
           <p class="st"><Lamp tone={ok ? "run" : "err"} /><span dir="auto">{ok ? t("conn.worked") : (result.detail || t("conn.failed"))}</span></p>
         ) : null}
       </div>

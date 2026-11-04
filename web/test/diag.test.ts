@@ -39,7 +39,7 @@ test("saving an address waits until JDownloader has answered there", async () =>
   // Already settled: no question. Never settles: gives up with the last answer.
   assert.equal((await settleConnection({ url: "u", connection: "connected", detail: "" }, async () => { throw new Error("asked"); }, async () => {})).connection, "connected");
   const stuck = await settleConnection({ url: "u", connection: "syncing", detail: "" }, async () => ({ url: "u", connection: "syncing", detail: "" }), async () => {}, 3);
-  assert.equal(stuck.connection, "syncing");
-  // A failing question gives back what is known.
-  assert.equal((await settleConnection({ url: "u", connection: "syncing", detail: "" }, async () => { throw new Error("x"); }, async () => {})).connection, "syncing");
+  assert.equal(stuck.connection, "syncing"); // the form shows "still checking" for this, never "Connected."
+  // A failing question is a failure for the caller, not a quiet "syncing".
+  await assert.rejects(settleConnection({ url: "u", connection: "syncing", detail: "" }, async () => { throw new Error("x"); }, async () => {}), /x/);
 });

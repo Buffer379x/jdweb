@@ -317,6 +317,7 @@ export const deMore = {
   "conn.save": "Speichern und verbinden",
   "conn.checking": "Adresse wird geprüft …",
   "conn.worked": "Verbunden.",
+  "conn.stillChecking": "Gespeichert. JDownloader hat noch nicht geantwortet, die Prüfung läuft weiter. Die Statusleiste zeigt das Ergebnis.",
   "conn.failed": "Gespeichert, aber JDownloader antwortet dort nicht.",
   "conn.offlineNow": "JDownloader antwortet gerade nicht.",
   "first.title": "Bitte lesen: Sicherheit der Verbindung",

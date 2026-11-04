@@ -311,6 +311,7 @@ export const enMore: Record<keyof typeof deMore, string> = {
   "conn.save": "Save and connect",
   "conn.checking": "Checking the address …",
   "conn.worked": "Connected.",
+  "conn.stillChecking": "Saved. JDownloader has not answered yet, still checking. The status bar shows the result.",
   "conn.failed": "Saved, but JDownloader does not answer there.",
   "conn.offlineNow": "JDownloader does not answer right now.",
   "first.title": "Please read: safety of the connection",

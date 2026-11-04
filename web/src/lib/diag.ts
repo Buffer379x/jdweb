@@ -44,6 +44,8 @@ export interface ConnectionAnswer {
 /**
  * Saving an address answers "syncing" at once: whether JDownloader answers there is only known a moment later.
  * Showing "Connected." for that would be wrong for a bad address. Asks again until the state is settled.
+ * What comes back may still be "syncing" after all tries: that is not a success, the caller says "still checking".
+ * A question that fails is not answered here either: the error goes to the caller, who shows it as a failure.
  */
 export async function settleConnection(
   first: ConnectionAnswer,
@@ -54,11 +56,7 @@ export async function settleConnection(
   let cur = first;
   for (let i = 0; i < tries && cur.connection === "syncing"; i++) {
     await wait(500);
-    try {
-      cur = await ask();
-    } catch {
-      return cur;
-    }
+    cur = await ask();
   }
   return cur;
 }
