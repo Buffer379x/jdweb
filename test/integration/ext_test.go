@@ -177,6 +177,21 @@ func TestEXT02_Password(t *testing.T) {
 	if rev.FinalPassword != "jdweb-pw" {
 		t.Errorf("the final password changed with the list: %q", rev.FinalPassword)
 	}
+	// The final password set and clear attempt.
+	a.must(t, "PUT", "/api/v1/extraction/archives/"+id, map[string]any{"finalPassword": "it-final-pw"}, nil, 204)
+	a.must(t, "POST", "/api/v1/extraction/archives/"+id+"/reveal", nil, &rev, 200)
+	if rev.FinalPassword != "it-final-pw" {
+		t.Errorf("final password after the set: %q", rev.FinalPassword)
+	}
+	// Found against revision 50639: JDownloader ignores an empty string (and null) and answers success.
+	// JDWeb reads back and tells the truth: 409.
+	if code, body := a.call("PUT", "/api/v1/extraction/archives/"+id, map[string]any{"finalPassword": ""}); code != 409 || errorCode(body) != "jd_error" {
+		t.Errorf("clearing the final password: %d %s, want 409 jd_error", code, clip(body))
+	}
+	a.must(t, "POST", "/api/v1/extraction/archives/"+id+"/reveal", nil, &rev, 200)
+	if rev.FinalPassword != "it-final-pw" {
+		t.Errorf("final password after the refused clear: %q", rev.FinalPassword)
+	}
 }
 
 // T-EXT-03: cancel a running extraction of the big archive, and extract it now.

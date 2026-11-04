@@ -76,7 +76,7 @@ func init() {
 		var id string
 		var v struct {
 			ExtractPath   string   `json:"extractPath"`
-			FinalPassword string   `json:"finalPassword"`
+			FinalPassword *string  `json:"finalPassword"`
 			Passwords     []string `json:"passwords"`
 		}
 		if err := a.scan(&id, &v); err != nil {
@@ -87,8 +87,9 @@ func init() {
 				if v.ExtractPath != "" {
 					s.archives[i].ExtractPath = v.ExtractPath
 				}
-				if v.FinalPassword != "" {
-					s.archives[i].FinalPassword = v.FinalPassword
+				// Like revision 50639: an empty final password is ignored, the stored one stays.
+				if v.FinalPassword != nil && *v.FinalPassword != "" {
+					s.archives[i].FinalPassword = *v.FinalPassword
 				}
 				s.archives[i].Passwords = v.Passwords
 			}

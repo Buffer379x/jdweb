@@ -197,7 +197,7 @@ func (a *app) waitGrabberNames(t testing.TB, names ...string) lgList {
 func (a *app) stage(t testing.TB, pkg, dir string, urls ...string) dlList {
 	t.Helper()
 	g := a.add(t, pkg, dir, urls...)
-	a.must(t, "POST", "/api/v1/linkgrabber/actions/to-downloads", map[string]any{"start": false, "packageIds": lgPackageIDs(g)}, nil, 204)
+	a.must(t, "POST", "/api/v1/linkgrabber/actions/to-downloads", map[string]any{"start": false, "packageIds": lgPackageIDs(g)}, nil, 200)
 	var l dlList
 	waitFor(t, "the links in the download list", 60*time.Second, func() bool {
 		l = a.downloads(t)
@@ -263,7 +263,11 @@ func (a *app) ctl(t testing.TB, action string) {
 
 func (a *app) action(t testing.TB, list, action string, body any) {
 	t.Helper()
-	a.must(t, "POST", "/api/v1/"+list+"/actions/"+action, body, nil, 204)
+	want := 204
+	if action == "to-downloads" {
+		want = 200 // answers {moved,skippedOffline}
+	}
+	a.must(t, "POST", "/api/v1/"+list+"/actions/"+action, body, nil, want)
 }
 
 // sel is the base body of an action.

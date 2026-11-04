@@ -290,14 +290,19 @@ var actions = map[string]action{
 		if err := b.needSelection(); err != nil {
 			return nil, err
 		}
-		if err := c.MoveToDownloads(ctx, b.links(), b.packages()); err != nil {
-			return nil, err
+		links, pkgs, moved, skipped := s.withoutOffline(b.links(), b.packages())
+		if len(links)+len(pkgs) > 0 {
+			if err := c.MoveToDownloads(ctx, links, pkgs); err != nil {
+				return nil, err
+			}
+			s.engine.Resync(state.Downloads)
+			if b.Start {
+				if err := c.ControllerStart(ctx); err != nil {
+					return nil, err
+				}
+			}
 		}
-		s.engine.Resync(state.Downloads)
-		if b.Start {
-			return nil, c.ControllerStart(ctx)
-		}
-		return nil, nil
+		return map[string]int{"moved": moved, "skippedOffline": skipped}, nil
 	}},
 	"abort": {grabber: true, run: func(ctx context.Context, _ *Server, c *jd.Client, _ state.List, _ *actionBody) (any, error) {
 		return nil, c.AbortCollecting(ctx)
@@ -366,6 +371,62 @@ func runCleanup(ctx context.Context, srv *Server, c *jd.Client, list state.List,
 		}
 	}
 	return nil, ops(c, list).Cleanup(ctx, links, pkgs, a, m, sel)
+}
+
+// withoutOffline drops offline links from a move to the downloads. JDownloader
+// moves nothing at all when a package holds an offline link (revision 50639,
+// and answers success), so a package with offline links is replaced by its
+// other links. moved counts the links that go (an id the mirror does not know
+// counts as one), skipped the offline links that stay in the linkgrabber.
+func (s *Server) withoutOffline(links, pkgs []int64) (outLinks, outPkgs []int64, moved, skipped int) {
+	snap := s.mirror.Snapshot(state.Linkgrabber)
+	byPkg := make(map[string][]state.LgLink)
+	byID := make(map[string]state.LgLink, len(snap.LgLinks))
+	for _, l := range snap.LgLinks {
+		byPkg[l.PackageID] = append(byPkg[l.PackageID], l)
+		byID[l.ID] = l
+	}
+	pkgByID := make(map[string]state.LgPackage, len(snap.LgPackages))
+	for _, p := range snap.LgPackages {
+		pkgByID[p.ID] = p
+	}
+	seen := make(map[int64]bool)
+	addLink := func(l state.LgLink) {
+		n, err := parseID(l.ID)
+		if err != nil || seen[n] {
+			return
+		}
+		seen[n] = true
+		if l.Availability == string(jd.AvailabilityOffline) {
+			skipped++
+			return
+		}
+		outLinks = append(outLinks, n)
+		moved++
+	}
+	for _, id := range pkgs {
+		p, known := pkgByID[idString(id)]
+		if !known || p.OfflineCount == 0 || len(byPkg[p.ID]) == 0 {
+			outPkgs = append(outPkgs, id)
+			moved += max(1, len(byPkg[idString(id)]))
+			continue
+		}
+		for _, l := range byPkg[p.ID] {
+			addLink(l)
+		}
+	}
+	for _, id := range links {
+		if l, ok := byID[idString(id)]; ok {
+			addLink(l)
+			continue
+		}
+		if !seen[id] {
+			seen[id] = true
+			outLinks = append(outLinks, id)
+			moved++
+		}
+	}
+	return outLinks, outPkgs, moved, skipped
 }
 
 // unselectedLinks returns the ids of all links of the list that are neither

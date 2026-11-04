@@ -151,7 +151,7 @@ Ids that JDownloader dropped meanwhile are no error: it answers such an action w
 | `unskip` | `reason` (optional) | yes | no |
 | `stopmark-set` | exactly one of `linkId`, `packageId` | yes | no |
 | `stopmark-remove` | | yes | no |
-| `to-downloads` | `start` (bool) | no | yes |
+| `to-downloads` returns `{moved,skippedOffline}` | `start` (bool) | no | yes |
 | `abort`, `clear` | | no | yes |
 | `set-variant` | `linkId,variantId` | no | yes |
 | `add-variant` | `linkId,variantId`, optional `afterLinkId,destPackageId` | no | yes |
@@ -163,7 +163,9 @@ Enums, checked by JDWeb:
 - `cleanup` `selection` `UNSELECTED`: JDownloader answers it with "not yet supported" (revision 50639), so JDWeb sends `SELECTED` with the links of the mirror that are neither selected nor in a selected package. When nothing is left, nothing is sent.
 - `unskip` `reason`: empty (all) or one of the skip reasons of JDownloader.
 
-`rename-*` names and `new-package` names must not be empty. `password` may be an empty string, which clears it, but must be present. `clear` empties the whole linkgrabber, `to-downloads` with `start:true` also starts the downloads. `add-variant` without `afterLinkId` and `destPackageId` puts the copy behind the original, in its package.
+`rename-*` names and `new-package` names must not be empty. `password` may be an empty string, which clears it, but must be present. `PUT /extraction/archives/{id}`: an absent `finalPassword` keeps the stored one. An empty one is sent to JDownloader explicitly, but JDownloader (revision 50639) ignores an empty string and a null: the stored password stays and JDownloader still answers success (tested against the real instance). JDWeb reads the settings back and answers `409 jd_error` when the password is still there; the web interface shows that message. `clear` empties the whole linkgrabber, `to-downloads` with `start:true` also starts the downloads. `add-variant` without `afterLinkId` and `destPackageId` puts the copy behind the original, in its package.
+
+`to-downloads` does not move offline links: JDownloader moves nothing at all, and answers success, when a package holds an offline link (found against revision 50639). JDWeb therefore sends the other links of such a package (taken from the mirror) and leaves the offline ones in the linkgrabber. The answer is `200` with `{moved,skippedOffline}`: `moved` is the number of links handed to JDownloader (an id the mirror does not know counts as one), `skippedOffline` the offline links that stayed. When nothing is left to move, JDownloader is not called and the downloads are not started even with `start:true`. The web interface shows a notice when `skippedOffline` is above 0, and an error when `moved` is 0.
 
 `to-downloads` with `start:false` does not start the links when JDownloader's own setting `LinkgrabberAutoStartEnabled` (interface `org.jdownloader.gui.views.linkgrabber.addlinksdialog.LinkgrabberSettings`, JDownloader's default: on) is on: JDownloader then starts what is moved, whatever the caller asked for. JDWeb never changes that setting itself; the settings page "General" has a switch for it. The same holds for `autostart:false` in `/linkgrabber/add`.
 

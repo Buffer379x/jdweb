@@ -286,6 +286,18 @@ func TestArchiveSecretsAreMaskedAndRevealed(t *testing.T) {
 	if a.ExtractPath != "/output/y" || a.FinalPassword != final || len(a.Passwords) != 2 || a.Passwords[0] != listed {
 		t.Fatalf("archive after a path change = %+v", a)
 	}
+	// An empty finalPassword is sent explicitly. JDownloader ignores it (as the real one does),
+	// and JDWeb must not call that done.
+	e.jd.ResetCalls()
+	if r := e.do("PUT", "/api/v1/extraction/archives/arch-1", map[string]any{"finalPassword": ""}); r.status != 409 || r.errCode() != "jd_error" {
+		t.Fatalf("clearing the final password: %d %s, want 409 jd_error", r.status, r.body)
+	}
+	if got := argsJSON(e.lastCall("/extraction/setArchiveSettings")); !strings.Contains(got, `"finalPassword":""`) {
+		t.Fatalf("the empty string was not sent: %s", got)
+	}
+	if a := e.jd.Archives()[0]; a.FinalPassword != final || a.ExtractPath != "/output/y" || len(a.Passwords) != 2 {
+		t.Fatalf("archive after the refused clear = %+v", a)
+	}
 	// A real new list replaces it, an empty one clears it.
 	e.expect(e.do("PUT", "/api/v1/extraction/archives/arch-1", map[string]any{"passwords": []string{"fresh"}}), 204)
 	if a := e.jd.Archives()[0]; len(a.Passwords) != 1 || a.Passwords[0] != "fresh" {

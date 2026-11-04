@@ -213,6 +213,37 @@ func TestLG07_Offline(t *testing.T) {
 	})
 }
 
+// A package with an offline link: JDownloader moves nothing and says success.
+// JDWeb sends the online links and tells what stayed.
+func TestLG07_ToDownloadsSkipsOfflineLinks(t *testing.T) {
+	cleanJD(t)
+	a := shared(t)
+	a.must(t, "POST", "/api/v1/linkgrabber/add", map[string]any{"links": []string{fx("/offline/it-lg07m-off.bin"), fx("/it-lg07m-on.bin")}, "packageName": prefix + "lg07m", "autostart": false}, nil, 200)
+	var g lgList
+	eventually(t, "both links with a known availability", 60*time.Second, func() bool {
+		g = a.grabber(t)
+		off, ok1 := g.link("it-lg07m-off.bin")
+		on, ok2 := g.link("it-lg07m-on.bin")
+		return ok1 && ok2 && off.Availability == "OFFLINE" && on.Availability == "ONLINE"
+	})
+	var out struct{ Moved, SkippedOffline int }
+	a.must(t, "POST", "/api/v1/linkgrabber/actions/to-downloads", map[string]any{"start": false, "packageIds": lgPackageIDs(g), "linkIds": []string{}}, &out, 200)
+	if out.Moved != 1 || out.SkippedOffline != 1 {
+		t.Errorf("answer = %+v, want moved 1, skippedOffline 1", out)
+	}
+	eventually(t, "the online link is in the downloads, the offline one stayed", 30*time.Second, func() bool {
+		_, inDl := a.downloads(t).link("it-lg07m-on.bin")
+		_, offStays := a.grabber(t).link("it-lg07m-off.bin")
+		return inDl && offStays
+	})
+	// Only the offline link: nothing to move, nothing moves.
+	off, _ := a.grabber(t).link("it-lg07m-off.bin")
+	a.must(t, "POST", "/api/v1/linkgrabber/actions/to-downloads", map[string]any{"start": false, "linkIds": []string{off.ID}, "packageIds": []string{}}, &out, 200)
+	if out.Moved != 0 || out.SkippedOffline != 1 {
+		t.Errorf("only offline: %+v", out)
+	}
+}
+
 // T-LG-08: moving to the download list keeps the link IDs.
 func TestLG08_ToDownloadsKeepsIDs(t *testing.T) {
 	cleanJD(t)

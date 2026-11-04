@@ -194,8 +194,12 @@ export function toDownloads(store: AnyStore, start: boolean): void {
     tg = { ...tg, packageIds: [...store.model.order], linkIds: [] };
   }
   if (tg.packageIds.length === 0 && tg.linkIds.length === 0) return;
-  void runAction(store.name, "to-downloads", { ...ids(tg), start }, store).then((r) => {
-    if (r) pushToast("info", start ? t("toast.startedFromGrabber") : t("toast.movedToDownloads"));
+  void runAction<{ moved: number; skippedOffline: number }>(store.name, "to-downloads", { ...ids(tg), start }, store).then((r) => {
+    if (!r) return;
+    const { moved = 0, skippedOffline = 0 } = r.data ?? {};
+    if (moved === 0 && skippedOffline > 0) pushToast("error", t("toast.nothingMovedOffline", { skipped: plural("count.links", skippedOffline) }));
+    else if (skippedOffline > 0) pushToast("info", t("toast.movedSkippedOffline", { moved: plural("count.links", moved), skipped: plural("count.links", skippedOffline) }));
+    else pushToast("info", start ? t("toast.startedFromGrabber") : t("toast.movedToDownloads"));
   });
 }
 

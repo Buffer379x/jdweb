@@ -256,6 +256,8 @@ const base = {
   "toast.containerSent": "Container sent to JDownloader.",
   "toast.copied": "Copied.",
   "toast.movedToDownloads": "Moved to the downloads.",
+  "toast.movedSkippedOffline": "Moved {moved}. {skipped} offline stayed in the linkgrabber: JDownloader does not take offline links.",
+  "toast.nothingMovedOffline": "Nothing moved: {skipped} are offline. JDownloader does not take offline links; remove them first.",
   "toast.startedFromGrabber": "Moved to the downloads and started.",
 
   "login.title": "Sign in",

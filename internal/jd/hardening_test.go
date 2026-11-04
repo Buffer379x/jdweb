@@ -157,7 +157,7 @@ func TestPasswordsStayOutOfErrors(t *testing.T) {
 			return err
 		}},
 		"SetArchiveSettings": {"/extraction/setArchiveSettings", func(c *jd.Client) error {
-			return c.SetArchiveSettings(ctx, jd.ArchiveSettings{ArchiveID: "a", FinalPassword: secret, Passwords: []string{secret}})
+			return c.SetArchiveSettings(ctx, jd.ArchiveSettings{ArchiveID: "a", FinalPassword: func() *string { s := secret; return &s }(), Passwords: []string{secret}})
 		}},
 		"ConfigSet": {"/config/set", func(c *jd.Client) error { return c.ConfigSet(ctx, "i", "", "ProxyPassword", secret) }},
 		"DialogAnswer": {"/dialogs/answer", func(c *jd.Client) error {

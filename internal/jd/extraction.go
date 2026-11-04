@@ -23,12 +23,13 @@ type ArchiveStatus struct {
 }
 
 // ArchiveSettings are the settings of one archive. Nil booleans keep the
-// default. Empty strings are not sent and keep the stored value. Passwords
+// default. Empty ExtractPath is not sent and keeps the stored value; a nil FinalPassword
+// keeps it, an empty one clears it (sent explicitly). Passwords
 // replaces the whole list, an empty list clears it.
 type ArchiveSettings struct {
 	ArchiveID                       string   `json:"archiveId"`
 	ExtractPath                     string   `json:"extractPath,omitempty"`
-	FinalPassword                   string   `json:"finalPassword,omitempty"`
+	FinalPassword                   *string  `json:"finalPassword,omitempty"`
 	Passwords                       []string `json:"passwords"`
 	AutoExtract                     *bool    `json:"autoExtract,omitempty"`
 	RemoveDownloadLinksAfterExtract *bool    `json:"removeDownloadLinksAfterExtraction,omitempty"`

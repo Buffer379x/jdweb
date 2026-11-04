@@ -109,7 +109,7 @@ func newArchiveSettingsDTO(a jd.ArchiveSettings) *archiveSettingsDTO {
 		RemoveDownloadLinksAfterExtraction: a.RemoveDownloadLinksAfterExtract, RemoveFilesAfterExtraction: a.RemoveFilesAfterExtraction,
 		Secret: true,
 	}
-	if a.FinalPassword != "" {
+	if a.FinalPassword != nil && *a.FinalPassword != "" {
 		d.FinalPassword = maskValue
 	}
 	if len(a.Passwords) > 0 {
@@ -195,7 +195,9 @@ func (s *Server) handleExtractionReveal(w http.ResponseWriter, r *http.Request) 
 	out := map[string]any{"finalPassword": "", "passwords": []string{}}
 	for _, a := range cur {
 		if a.ArchiveID == id {
-			out["finalPassword"] = a.FinalPassword
+			if a.FinalPassword != nil {
+				out["finalPassword"] = *a.FinalPassword
+			}
 			if a.Passwords != nil {
 				out["passwords"] = a.Passwords
 			}
@@ -206,11 +208,11 @@ func (s *Server) handleExtractionReveal(w http.ResponseWriter, r *http.Request) 
 }
 
 // handleExtractionSettings is PUT /extraction/archives/{id}. Fields that are
-// absent keep their value, passwords included. The mask is not a value.
+// absent keep their value, passwords included; an empty finalPassword clears it. The mask is not a value.
 func (s *Server) handleExtractionSettings(w http.ResponseWriter, r *http.Request) {
 	var b struct {
 		ExtractPath                     string    `json:"extractPath"`
-		FinalPassword                   string    `json:"finalPassword"`
+		FinalPassword                   *string   `json:"finalPassword"`
 		Passwords                       *[]string `json:"passwords"`
 		AutoExtract                     *bool     `json:"autoExtract"`
 		RemoveDownloadLinksAfterExtract *bool     `json:"removeDownloadLinksAfterExtraction"`
@@ -221,7 +223,7 @@ func (s *Server) handleExtractionSettings(w http.ResponseWriter, r *http.Request
 	if err == nil && (id == "" || len(id) > 512 || (b.Passwords != nil && len(*b.Passwords) > 1000)) {
 		err = badRequest("The archive id is missing or too long, or there are too many passwords.")
 	}
-	if err == nil && (b.FinalPassword == maskValue || (b.Passwords != nil && slices.Contains(*b.Passwords, maskValue))) {
+	if err == nil && ((b.FinalPassword != nil && *b.FinalPassword == maskValue) || (b.Passwords != nil && slices.Contains(*b.Passwords, maskValue))) {
 		err = badRequest("This is the mask of a secret, not a value. Send a new value or leave the field out.")
 	}
 	if err == nil {
@@ -229,6 +231,9 @@ func (s *Server) handleExtractionSettings(w http.ResponseWriter, r *http.Request
 		if c, err = s.client(); err == nil {
 			err = s.saveArchiveSettings(r, c, id, b.ExtractPath, b.FinalPassword, b.Passwords, b.AutoExtract,
 				b.RemoveDownloadLinksAfterExtract, b.RemoveFilesAfterExtraction)
+			if err == nil && b.FinalPassword != nil && *b.FinalPassword == "" {
+				err = s.checkFinalPasswordCleared(r, c, id)
+			}
 		}
 	}
 	if err != nil {
@@ -238,7 +243,7 @@ func (s *Server) handleExtractionSettings(w http.ResponseWriter, r *http.Request
 	noContent(w)
 }
 
-func (s *Server) saveArchiveSettings(r *http.Request, c *jd.Client, id, path, final string, pws *[]string, auto, rmLinks, rmFiles *bool) error {
+func (s *Server) saveArchiveSettings(r *http.Request, c *jd.Client, id, path string, final *string, pws *[]string, auto, rmLinks, rmFiles *bool) error {
 	var passwords []string
 	if pws != nil {
 		passwords = *pws
@@ -258,6 +263,23 @@ func (s *Server) saveArchiveSettings(r *http.Request, c *jd.Client, id, path, fi
 		ArchiveID: id, ExtractPath: path, FinalPassword: final, Passwords: passwords,
 		AutoExtract: auto, RemoveDownloadLinksAfterExtract: rmLinks, RemoveFilesAfterExtraction: rmFiles,
 	})
+}
+
+// checkFinalPasswordCleared reads the settings back after a request to clear
+// the final password. JDownloader (revision 50639) takes the empty string and
+// the null as "no change" and still answers success, so a clear that did not
+// happen is told instead of reported as done.
+func (s *Server) checkFinalPasswordCleared(r *http.Request, c *jd.Client, id string) error {
+	cur, err := c.ArchiveSettings(r.Context(), []string{id})
+	if err != nil {
+		return err
+	}
+	for _, a := range cur {
+		if a.ArchiveID == id && a.FinalPassword != nil && *a.FinalPassword != "" {
+			return newError(http.StatusConflict, codeJDError, "JDownloader keeps the final password of this archive: its API cannot clear it. Set another one, or clear it in JDownloader itself.")
+		}
+	}
+	return nil
 }
 
 func (s *Server) handleExtractionPassword(w http.ResponseWriter, r *http.Request) {

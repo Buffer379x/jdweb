@@ -147,7 +147,7 @@ func TestToDownloads(t *testing.T) {
 	e := newEnv(t)
 	s := e.seed()
 	body := map[string]any{"linkIds": ids(s.lg...), "packageIds": ids(s.lgPkg)}
-	e.expect(e.post("/api/v1/linkgrabber/actions/to-downloads", body), 204)
+	e.expect(e.post("/api/v1/linkgrabber/actions/to-downloads", body), 200)
 	if len(e.jdCalls("/linkgrabberv2/moveToDownloadlist")) != 1 {
 		t.Fatalf("calls: %v", e.jd.Calls())
 	}
@@ -155,9 +155,45 @@ func TestToDownloads(t *testing.T) {
 		t.Fatal("downloads were started without start:true")
 	}
 	body["start"] = true
-	e.expect(e.post("/api/v1/linkgrabber/actions/to-downloads", body), 204)
+	e.expect(e.post("/api/v1/linkgrabber/actions/to-downloads", body), 200)
 	if len(e.jdCalls("/downloadcontroller/start")) != 1 {
 		t.Fatalf("start:true did not start the downloads: %v", e.jd.Calls())
+	}
+}
+
+// JDownloader moves nothing when a package holds an offline link and still
+// answers success. JDWeb sends the other links and says what stayed.
+func TestToDownloadsLeavesOfflineLinksBehind(t *testing.T) {
+	e := newEnv(t, withRun, withFastSync)
+	pkg, links := e.jd.AddPackage(testjd.Linkgrabber, testjd.Package{Name: "mixed"},
+		testjd.Link{Name: "on1"}, testjd.Link{Name: "off", Availability: "OFFLINE"}, testjd.Link{Name: "on2"})
+	pkg2, links2 := e.jd.AddPackage(testjd.Linkgrabber, testjd.Package{Name: "alloff"},
+		testjd.Link{Name: "off2", Availability: "OFFLINE"})
+	e.waitConnected()
+	eventually(t, "links in the mirror", func() bool { return len(e.mirror.Snapshot(state.Linkgrabber).LgLinks) == 4 })
+	type result struct{ Moved, SkippedOffline int }
+	post := func(body map[string]any) result {
+		e.jd.ResetCalls()
+		r := e.post("/api/v1/linkgrabber/actions/to-downloads", body)
+		e.expect(r, 200)
+		var out result
+		r.json(t, &out)
+		return out
+	}
+	if out := post(map[string]any{"packageIds": ids(pkg)}); out != (result{2, 1}) {
+		t.Errorf("mixed package: %+v", out)
+	}
+	if got, want := argsJSON(e.lastCall("/linkgrabberv2/moveToDownloadlist")), fmt.Sprintf("[[%d,%d],[]]", links[0], links[2]); got != want {
+		t.Errorf("params = %s, want %s", got, want)
+	}
+	if out := post(map[string]any{"packageIds": ids(pkg2), "linkIds": ids(links2...), "start": true}); out != (result{0, 1}) {
+		t.Errorf("all offline: %+v", out)
+	}
+	if n := len(e.jdCalls("/linkgrabberv2/moveToDownloadlist")) + len(e.jdCalls("/downloadcontroller/start")); n != 0 {
+		t.Errorf("%d calls reached JDownloader with nothing to move", n)
+	}
+	if out := post(map[string]any{"linkIds": ids(links[1], links[0])}); out != (result{1, 1}) {
+		t.Errorf("offline link picked on its own: %+v", out)
 	}
 }
 
