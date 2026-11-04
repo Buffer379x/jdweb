@@ -5,13 +5,13 @@ import (
 	"fmt"
 	"os"
 	"slices"
-	"strings"
 	"testing"
 	"time"
 
 	"github.com/Buffer379x/jdweb/internal/jd"
 	"github.com/Buffer379x/jdweb/internal/state"
 	jdsync "github.com/Buffer379x/jdweb/internal/sync"
+	"github.com/Buffer379x/jdweb/internal/testguard"
 )
 
 // This test talks to a real JDownloader and runs only when JDWEB_TEST_JD_URL is
@@ -22,26 +22,8 @@ const livePrefix = "jdweb-live-"
 
 func requireOnlyTestData(t *testing.T, c *jd.Client) {
 	t.Helper()
-	ctx := context.Background()
-	dl, err := c.DownloadPackages(ctx, jd.DownloadPackageQuery{})
-	if err != nil {
+	if err := testguard.Require(context.Background(), c, os.Getenv("JDWEB_TEST_JD_URL"), livePrefix); err != nil {
 		t.Fatal(err)
-	}
-	lg, err := c.GrabberPackages(ctx, jd.GrabberPackageQuery{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	var names []string
-	for _, p := range dl {
-		names = append(names, p.Name)
-	}
-	for _, p := range lg {
-		names = append(names, p.Name)
-	}
-	for _, name := range names {
-		if !strings.HasPrefix(name, livePrefix) {
-			t.Fatalf("REFUSING to run: the instance holds the package %q, which is not from these tests (prefix %q). Point JDWEB_TEST_JD_URL at the throwaway test stack only.", name, livePrefix)
-		}
 	}
 }
 

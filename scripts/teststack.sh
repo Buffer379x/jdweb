@@ -24,6 +24,11 @@ API_URL="http://127.0.0.1:${API_PORT}"
 CFG_DIR="/config/cfg"
 GENERAL_CFG="${CFG_DIR}/org.jdownloader.settings.GeneralSettings.json"
 API_CFG="${CFG_DIR}/org.jdownloader.api.RemoteAPIConfig.json"
+# The marker every test checks before it touches JDownloader (internal/testguard,
+# test/e2e/support/guard.ts): a harmless setting that no other JDownloader has.
+MARKER_CFG="${CFG_DIR}/org.jdownloader.api.myjdownloader.MyJDownloaderSettings.json"
+MARKER_KEY="devicename"
+MARKER_VALUE="jdweb-test-stack"
 WAIT_SECONDS=240
 
 log() { printf '[teststack] %s\n' "$*" >&2; }
@@ -54,6 +59,35 @@ except Exception:
     sys.exit(1)
 sys.exit(0 if d.get("deprecatedapienabled") is True and d.get("deprecatedapilocalhostonly") is False else 1)
 ' "${API_CFG}" >/dev/null 2>&1
+}
+
+marker_set() {
+  exists volume "${VOLUME}" || return 1
+  volume_helper python -c '
+import json, sys
+try:
+    d = json.load(open(sys.argv[1]))
+except Exception:
+    sys.exit(1)
+sys.exit(0 if d.get(sys.argv[2]) == sys.argv[3] else 1)
+' "${MARKER_CFG}" "${MARKER_KEY}" "${MARKER_VALUE}" >/dev/null 2>&1
+}
+
+# Merge the marker into its config file on the stopped config volume.
+write_marker() {
+  volume_helper python -c '
+import json, os, sys
+path = sys.argv[1]
+try:
+    data = json.load(open(path))
+except (OSError, ValueError):
+    data = {}
+data[sys.argv[2]] = sys.argv[3]
+os.makedirs(os.path.dirname(path), exist_ok=True)
+with open(path, "w") as f:
+    json.dump(data, f)
+os.chown(path, 1000, 1000)
+' "${MARKER_CFG}" "${MARKER_KEY}" "${MARKER_VALUE}"
 }
 
 ping_ok() {
@@ -120,6 +154,7 @@ first_run_jd() {
   log "initial config exists, stopping JDownloader to enable the API"
   docker stop -t 25 "${JD_CONTAINER}" >/dev/null
   enable_api
+  write_marker
   docker start "${JD_CONTAINER}" >/dev/null
 }
 
@@ -136,6 +171,12 @@ cmd_up() {
   fi
 
   if api_configured; then
+    if ! marker_set; then
+      # JDownloader writes its settings when it stops: change the file only while it is stopped.
+      log "setting the test marker (JDownloader restarts once)"
+      exists container "${JD_CONTAINER}" && is_running "${JD_CONTAINER}" && docker stop -t 25 "${JD_CONTAINER}" >/dev/null
+      write_marker
+    fi
     if ! exists container "${JD_CONTAINER}"; then
       run_jd
     elif ! is_running "${JD_CONTAINER}"; then

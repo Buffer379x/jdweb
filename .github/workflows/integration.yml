@@ -42,7 +42,10 @@ jobs:
         env:
           JDWEB_IT_BIG: ${{ inputs.big && '1' || '' }}
         run: |
-          JDWEB_TEST_JD_URL="$(bash scripts/teststack.sh url)" \
+          # Without an address the test binary would skip everything and the step would be green.
+          URL="$(bash scripts/teststack.sh url)"
+          test -n "$URL" || { echo "no test stack address" >&2; exit 1; }
+          JDWEB_TEST_JD_URL="$URL" \
             go test -tags integration -count=1 -timeout 80m -v ./test/integration/ 2>&1 | tee integration.log
       - name: Summary
         if: always()

@@ -9,9 +9,11 @@
 //	scripts/teststack.sh up
 //	JDWEB_TEST_JD_URL=$(scripts/teststack.sh url) go test -tags integration ./test/integration/...
 //
-// The tests refuse to run unless every package in JDownloader starts with
-// "jdweb-it-", so they cannot touch a JDownloader that holds real downloads.
-// Never point JDWEB_TEST_JD_URL at one.
+// The tests refuse to run unless the instance is the test stack
+// (internal/testguard: host 127.0.0.1, the marker of scripts/teststack.sh, only
+// packages with the prefix "jdweb-it-", no open dialog or captcha), so they
+// cannot touch a JDownloader that holds real downloads. Never point
+// JDWEB_TEST_JD_URL at one.
 package integration
 
 import (
@@ -34,6 +36,7 @@ import (
 	"time"
 
 	"github.com/Buffer379x/jdweb/internal/jd"
+	"github.com/Buffer379x/jdweb/internal/testguard"
 )
 
 const (
@@ -58,6 +61,11 @@ func TestMain(m *testing.M) { os.Exit(runMain(m)) }
 func runMain(m *testing.M) int {
 	raw := os.Getenv("JDWEB_TEST_JD_URL")
 	if raw == "" {
+		// A pipeline that forgot the URL must not report green without having tested anything.
+		if os.Getenv("CI") != "" {
+			fmt.Println("JDWEB_TEST_JD_URL is not set, and CI is: failing instead of skipping (see scripts/teststack.sh)")
+			return 1
+		}
 		fmt.Println("JDWEB_TEST_JD_URL is not set: skipping the integration tests (see scripts/teststack.sh)")
 		return 0
 	}
@@ -128,33 +136,9 @@ func tuneJD(ctx context.Context, c *jd.Client) (restore func(), err error) {
 	}, nil
 }
 
-// requireTestInstance refuses an instance that holds anything not made by
-// these tests: a package without the prefix, or an open captcha or dialog.
+// requireTestInstance refuses everything that is not the test stack (testguard.Rule).
 func requireTestInstance(ctx context.Context, c *jd.Client) error {
-	if ok, err := c.Ping(ctx); err != nil || !ok {
-		return fmt.Errorf("JDownloader at %s does not answer: %v", jdURL, err)
-	}
-	dl, err := c.DownloadPackages(ctx, jd.DownloadPackageQuery{})
-	if err != nil {
-		return err
-	}
-	lg, err := c.GrabberPackages(ctx, jd.GrabberPackageQuery{})
-	if err != nil {
-		return err
-	}
-	var names []string
-	for _, p := range dl {
-		names = append(names, p.Name)
-	}
-	for _, p := range lg {
-		names = append(names, p.Name)
-	}
-	for _, n := range names {
-		if !strings.HasPrefix(n, prefix) {
-			return fmt.Errorf("the instance holds the package %q, which is not from these tests (prefix %q). Point JDWEB_TEST_JD_URL at the throwaway test stack only", n, prefix)
-		}
-	}
-	return nil
+	return testguard.Require(ctx, c, jdURL, prefix)
 }
 
 // syncBuffer is a writer that can be read while a process writes.
