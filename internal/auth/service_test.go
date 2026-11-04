@@ -1015,3 +1015,22 @@ func resetDummyHash() {
 	dummyVal = ""
 	dummyMu.Unlock()
 }
+
+// JDWEB_LOG_LEVEL=error must not hide the one line that the first start cannot do without.
+func TestInitSetupLogsTheTokenWhateverTheLogLevel(t *testing.T) {
+	var buf lockedBuffer
+	e := newEnv(t, Config{})
+	e.svc.log = slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelError}))
+	if err := e.svc.InitSetup(e.ctx); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(buf.String(), `"setup_token":"`) {
+		t.Fatalf("the setup token is not in the log at level error: %q", buf.String())
+	}
+	if err := e.svc.InitSetup(e.ctx); err != nil {
+		t.Fatal(err)
+	}
+	if n := strings.Count(buf.String(), `"setup_token"`); n != 1 {
+		t.Errorf("token logged %d times, want once", n)
+	}
+}

@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"time"
 
 	"github.com/Buffer379x/jdweb/internal/store"
@@ -24,7 +25,7 @@ type resetRecord struct {
 
 // InitSetup is called once when the server starts. If no account exists it
 // creates the one-time setup token, keeps it in memory and logs it once as the
-// structured field setup_token. This is the only place a secret is logged.
+// structured field setup_token at every log level. This is the only place a secret is logged.
 func (s *Service) InitSetup(ctx context.Context) error {
 	n, err := s.db.UserCount(ctx)
 	if err != nil {
@@ -43,9 +44,11 @@ func (s *Service) InitSetup(ctx context.Context) error {
 		return err
 	}
 	s.setupToken = tok
-	s.log.Warn("JDWeb is not set up yet: open the web interface and create the account with this one-time token",
-		"setup_token", tok)
-	return nil
+	// Written to the handler directly: a log level above Warn must not hide the
+	// only way to create the first account.
+	rec := slog.NewRecord(s.now(), slog.LevelWarn, "JDWeb is not set up yet: open the web interface and create the account with this one-time token", 0)
+	rec.AddAttrs(slog.String("setup_token", tok))
+	return s.log.Handler().Handle(ctx, rec)
 }
 
 func (s *Service) activeReset(ctx context.Context) (resetRecord, bool, error) {
