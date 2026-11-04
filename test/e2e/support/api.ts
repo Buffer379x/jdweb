@@ -80,23 +80,16 @@ export class Api {
     await this.post("/speedlimit", { enabled: bytesPerSecond !== null, bytesPerSecond: bytesPerSecond ?? 51200 });
   }
 
-  /** The guard: nothing in JDownloader that these tests did not create. */
-  async assertTestInstance(): Promise<void> {
-    for (const l of [await this.downloads(), await this.grabber()]) {
-      for (const p of l.packages) {
-        if (!p.name.startsWith(PREFIX)) throw new Error(`REFUSING to run: JDownloader holds the package "${p.name}", which is not from these tests (prefix ${PREFIX}). Point the tests at the throwaway test stack only.`);
-      }
-    }
-  }
-
   /**
-   * Stops and removes everything, files included. The guard ran once at the start of the suite (00-setup):
-   * what is in JDownloader now was put there by these tests, also what the UI named itself.
+   * Stops and removes everything, files included. Only after the guard passed (00-setup writes .auth/guard-passed,
+   * 99-teardown checks it and the identity of the instance again): what is in JDownloader now was put there by
+   * these tests, also what the UI named itself.
    */
   async wipe(): Promise<void> {
     await this.limit(null);
-    await this.post("/controller/stop", {}, [200, 204]).catch(() => {});
-    await this.post("/linkgrabber/actions/abort", {}).catch(() => {});
+    // A failed stop is not hidden: the poll for IDLE below would only show it as a timeout much later.
+    await this.post("/controller/stop", {}, [200, 204]);
+    await this.post("/linkgrabber/actions/abort", {});
     const cleanup = { action: "DELETE_ALL", mode: "REMOVE_LINKS_AND_DELETE_FILES", selection: "ALL", linkIds: [], packageIds: [] };
     await this.post("/downloads/actions/cleanup", cleanup);
     await this.post("/linkgrabber/actions/cleanup", { ...cleanup, mode: "REMOVE_LINKS_ONLY" });

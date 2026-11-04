@@ -24,6 +24,9 @@ export function setupToken(container: string): string {
 /** JDownloader's own switch: it starts what is moved to the downloads. The tests need it off. */
 export const AUTOSTART = { interface: "org.jdownloader.gui.views.linkgrabber.addlinksdialog.LinkgrabberSettings", storage: "", key: "LinkgrabberAutoStartEnabled" };
 
+/** Where 00-setup saves the old value of the switch; only 99-teardown deletes it, after the restore. */
+export const AUTOSTART_OLD = ".auth/autostart-old.json";
+
 /** The API of the test JDownloader itself (published on the host only), to see what JDownloader did before JDWeb tells it. */
 export const JD_URL = process.env.E2E_JD_URL ?? "http://127.0.0.1:13128";
 

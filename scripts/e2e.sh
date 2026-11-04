@@ -11,7 +11,9 @@
 #
 # Containers it creates and removes again: jdweb-e2e (image against the real JDownloader),
 # jdweb-e2e-fake (image against the fake) and jdweb-e2e-fakejd (the fake JDownloader).
-# It never touches anything else, and the tests refuse a JDownloader that holds packages they did not create.
+# It never touches anything else. The tests refuse every JDownloader that is not the test stack (marker set by
+# scripts/teststack.sh up, host 127.0.0.1, only packages they created, no open dialog or captcha), and the cleanup
+# at the end wipes only after that check passed in the same run.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -41,6 +43,12 @@ trap 'rc=$?; cleanup; exit $rc' EXIT
 docker container inspect "$JD_CONTAINER" >/dev/null 2>&1 || die "the test stack is not running: scripts/teststack.sh up"
 docker network inspect "$NETWORK" >/dev/null 2>&1 || die "network $NETWORK is missing: scripts/teststack.sh up"
 cleanup
+
+# The safety gate, before anything starts: the JDownloader must be the test stack (test/e2e/support/guard.ts).
+# 00-setup asks again and 99-teardown wipes only after that. Needs Node 24 (runs the TypeScript file as it is).
+if [ "$what" != "fake" ]; then
+  (cd "$ROOT/test/e2e" && node support/check-guard.ts) || die "the guard refused the JDownloader; nothing was started"
+fi
 
 if [ -z "${E2E_NO_BUILD:-}" ]; then
   log "building $IMAGE"
