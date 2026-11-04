@@ -19,7 +19,7 @@ test("plural keys come in pairs, and both texts carry the same placeholders", ()
 });
 
 test("every code of docs/api.md has an error text", () => {
-  for (const c of ["unauthorized", "totp_required", "forbidden", "bad_request", "not_found", "conflict", "rate_limited", "jd_offline", "jd_error", "internal", "network", "unknown"]) {
+  for (const c of ["unauthorized", "totp_required", "forbidden", "bad_request", "not_found", "conflict", "selection_gone", "rate_limited", "jd_offline", "jd_error", "internal", "network", "unknown"]) {
     assert.ok(`err.${c}` in de, c);
   }
 });

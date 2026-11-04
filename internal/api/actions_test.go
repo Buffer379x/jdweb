@@ -103,8 +103,6 @@ func TestActionsMapToJDownloaderCalls(t *testing.T) {
 			tc{l.name, "move-links", map[string]any{"linkIds": ids(l.links[1]), "destPackageId": ids(l.pkg)[0]},
 				l.ns + "/moveLinks", fmt.Sprintf("[[%d],-1,%d]", l.links[1], l.pkg)},
 			tc{l.name, "move-packages", map[string]any{"packageIds": ids(l.pkg), "afterPackageId": "-1"}, l.ns + "/movePackages", fmt.Sprintf("[%s,-1]", P)},
-			tc{l.name, "cleanup", with(sb, "action", "DELETE_FINISHED", "mode", "REMOVE_LINKS_ONLY", "selection", "SELECTED"),
-				l.ns + "/cleanup", fmt.Sprintf("[%s,%s,\"DELETE_FINISHED\",\"REMOVE_LINKS_ONLY\",\"SELECTED\"]", L, P)},
 		)
 	}
 	DL, DP := js(dl...), js(s.dlPkg)
@@ -331,10 +329,10 @@ func TestActionValidation(t *testing.T) {
 // The default mode of a cleanup is not assumed: all enums valid is the only way through.
 func TestCleanupAllEnumValuesReachJDownloader(t *testing.T) {
 	e := newEnv(t)
-	s := e.seed()
 	for _, a := range []string{"DELETE_ALL", "DELETE_DISABLED", "DELETE_FAILED", "DELETE_FINISHED", "DELETE_OFFLINE", "DELETE_DUPE", "DELETE_MODE"} {
 		for _, m := range []string{"REMOVE_LINKS_ONLY", "REMOVE_LINKS_AND_RECYCLE_FILES", "REMOVE_LINKS_AND_DELETE_FILES"} {
 			for _, sel := range []string{"SELECTED", "ALL", "NONE"} {
+				s := e.seed() // a SELECTED cleanup that matches removes the entries: every round gets its own
 				e.jd.ResetCalls()
 				r := e.post("/api/v1/downloads/actions/cleanup", map[string]any{
 					"linkIds": ids(s.dl...), "action": a, "mode": m, "selection": sel,
@@ -522,5 +520,86 @@ func TestCleanupUnselectedLargeList(t *testing.T) {
 	got, _ := e.cleanupSent("/linkgrabberv2/cleanup")
 	if len(got) != len(all)-3 {
 		t.Errorf("sent %d ids, want %d", len(got), len(all)-3)
+	}
+}
+
+// Experiment against revision 50639 (test/integration/stale_test.go): JDownloader
+// keeps everything when the ids of a SELECTED cleanup are unknown. JDWeb still
+// asks it first which of the ids exist, and sends nothing when none does, so
+// that the safety does not rest on that behaviour.
+func cleanupSelected(links, pkgs []int64) map[string]any {
+	return map[string]any{"linkIds": ids(links...), "packageIds": ids(pkgs...), "action": "DELETE_ALL", "mode": "REMOVE_LINKS_AND_DELETE_FILES", "selection": "SELECTED"}
+}
+
+func TestCleanupSelectedWithOnlyStaleIDsSendsNothing(t *testing.T) {
+	for _, list := range []string{"downloads", "linkgrabber"} {
+		l := testjd.Downloads
+		path := "/downloadsV2/cleanup"
+		if list == "linkgrabber" {
+			l, path = testjd.Linkgrabber, "/linkgrabberv2/cleanup"
+		}
+		for name, body := range map[string]map[string]any{
+			"links":    cleanupSelected([]int64{424242}, nil),
+			"packages": cleanupSelected(nil, []int64{424243}),
+			"both":     cleanupSelected([]int64{424242}, []int64{424243}),
+		} {
+			e := newEnv(t)
+			e.jd.AddPackage(l, testjd.Package{Name: "bystander"}, testjd.Link{Name: "1"})
+			e.jd.ResetCalls()
+			r := e.post("/api/v1/"+list+"/actions/cleanup", body)
+			e.expectErr(r, 409, "selection_gone")
+			if n := len(e.jdCalls(path)); n != 0 {
+				t.Errorf("%s/%s: JDownloader got %d cleanup calls, want none", list, name, n)
+			}
+		}
+	}
+}
+
+func TestCleanupSelectedMapsToJDownloader(t *testing.T) {
+	e := newEnv(t)
+	s := e.seed()
+	for _, l := range []struct {
+		list, path string
+		links      []int64
+		pkg        int64
+	}{{"downloads", "/downloadsV2/cleanup", s.dl, s.dlPkg}, {"linkgrabber", "/linkgrabberv2/cleanup", s.lg, s.lgPkg}} {
+		e.jd.ResetCalls()
+		b := map[string]any{"linkIds": ids(l.links...), "packageIds": ids(l.pkg), "action": "DELETE_FINISHED", "mode": "REMOVE_LINKS_ONLY", "selection": "SELECTED"}
+		e.expect(e.post("/api/v1/"+l.list+"/actions/cleanup", b), 204)
+		want := fmt.Sprintf(`[%s,[%d],"DELETE_FINISHED","REMOVE_LINKS_ONLY","SELECTED"]`, js(l.links...), l.pkg)
+		if got := argsJSON(e.lastCall(l.path)); got != want {
+			t.Errorf("%s: params = %s, want %s", l.list, got, want)
+		}
+	}
+}
+
+func TestCleanupSelectedKeepsOnlyTheIDsJDownloaderStillHas(t *testing.T) {
+	e := newEnv(t)
+	pk, a := e.jd.AddPackage(testjd.Downloads, testjd.Package{Name: "x"}, testjd.Link{Name: "1"}, testjd.Link{Name: "2"})
+	e.jd.ResetCalls()
+	e.expect(e.post("/api/v1/downloads/actions/cleanup", cleanupSelected([]int64{a[0], 424242}, []int64{pk, 424243})), 204)
+	p := e.lastCall("/downloadsV2/cleanup").Args()
+	var links, pkgs []int64
+	_ = json.Unmarshal(p[0], &links)
+	_ = json.Unmarshal(p[1], &pkgs)
+	if !slices.Equal(links, []int64{a[0]}) || !slices.Equal(pkgs, []int64{pk}) {
+		t.Errorf("sent links %v packages %v, want [%d] [%d]", links, pkgs, a[0], pk)
+	}
+}
+
+func TestCleanupSelectedJDownloaderOffline(t *testing.T) {
+	e := newEnv(t)
+	_, a := e.jd.AddPackage(testjd.Downloads, testjd.Package{Name: "x"}, testjd.Link{Name: "1"})
+	e.jd.Down()
+	e.expectErr(e.post("/api/v1/downloads/actions/cleanup", cleanupSelected(a, nil)), 503, "jd_offline")
+}
+
+// An empty list after the intersection must not turn "selected" into "everything" for the other selections.
+func TestCleanupAllAndNoneAreNotChecked(t *testing.T) {
+	e := newEnv(t)
+	for _, sel := range []string{"ALL", "NONE"} {
+		b := cleanupSelected([]int64{424242}, nil)
+		b["selection"] = sel
+		e.expect(e.post("/api/v1/downloads/actions/cleanup", b), 204)
 	}
 }

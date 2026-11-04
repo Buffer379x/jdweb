@@ -21,11 +21,18 @@ export interface Body {
 }
 
 /** Runs an action. A failure becomes a message, and the list is loaded again, so that it catches up with JDownloader. */
-export async function runAction<T = void>(list: ListName, action: string, body: Body = {}, store?: AnyStore): Promise<{ data: T } | null> {
+export async function runAction<T = void>(
+  list: ListName,
+  action: string,
+  body: Body = {},
+  store?: AnyStore,
+  onError?: (e: unknown) => void,
+): Promise<{ data: T } | null> {
   try {
     return { data: await post<T>(`/${list}/actions/${action}`, { linkIds: [], packageIds: [], ...body }) };
   } catch (e) {
     pushToastForError(e);
+    onError?.(e);
     if (isApiError(e) && e.code !== "network") store?.reloadSoon(150);
     return null;
   }

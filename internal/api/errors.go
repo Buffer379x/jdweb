@@ -17,16 +17,17 @@ import (
 
 // Error codes of docs/api.md.
 const (
-	codeUnauthorized = "unauthorized"
-	codeTOTPRequired = "totp_required"
-	codeForbidden    = "forbidden"
-	codeBadRequest   = "bad_request"
-	codeNotFound     = "not_found"
-	codeConflict     = "conflict"
-	codeRateLimited  = "rate_limited"
-	codeJDOffline    = "jd_offline"
-	codeJDError      = "jd_error"
-	codeInternal     = "internal"
+	codeUnauthorized  = "unauthorized"
+	codeTOTPRequired  = "totp_required"
+	codeForbidden     = "forbidden"
+	codeBadRequest    = "bad_request"
+	codeNotFound      = "not_found"
+	codeConflict      = "conflict"
+	codeRateLimited   = "rate_limited"
+	codeSelectionGone = "selection_gone"
+	codeJDOffline     = "jd_offline"
+	codeJDError       = "jd_error"
+	codeInternal      = "internal"
 )
 
 // apiError is an error with the answer it maps to.
@@ -62,6 +63,10 @@ const (
 	msgNoURL    = "No JDownloader address is set. Enter it in the connection settings."
 	msgBusy     = "Too many password checks are running. Try again in a moment."
 )
+
+// errSelectionGone answers a cleanup of a selection that JDownloader no longer has.
+var errSelectionGone = newError(http.StatusConflict, codeSelectionGone,
+	"The selected entries are no longer in JDownloader. Nothing was removed; the list is being refreshed.")
 
 // errNoJD is returned when no JDownloader address is set.
 var errNoJD = newError(http.StatusServiceUnavailable, codeJDOffline, "%s", msgNoURL)

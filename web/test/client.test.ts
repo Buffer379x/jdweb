@@ -65,3 +65,8 @@ test("an unknown code from the server is not trusted", async () => {
   respond(400, JSON.stringify({ error: { code: "__proto__", message: "x" } }));
   await assert.rejects(() => request("GET", "/x"), (e: ApiError) => e.code === "unknown");
 });
+
+test("a 409 selection_gone keeps its own code", async () => {
+  respond(409, JSON.stringify({ error: { code: "selection_gone", message: "gone" } }));
+  await assert.rejects(() => post("/downloads/actions/cleanup", {}), (e: ApiError) => e.code === "selection_gone" && e.status === 409);
+});

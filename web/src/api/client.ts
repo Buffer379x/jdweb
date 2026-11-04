@@ -10,6 +10,7 @@ export type ErrorCode =
   | "bad_request"
   | "not_found"
   | "conflict"
+  | "selection_gone"
   | "rate_limited"
   | "jd_offline"
   | "jd_error"
@@ -32,7 +33,7 @@ export class ApiError extends Error {
 }
 
 const KNOWN: ReadonlySet<string> = new Set([
-  "unauthorized", "totp_required", "forbidden", "bad_request", "not_found", "conflict",
+  "unauthorized", "totp_required", "forbidden", "bad_request", "not_found", "conflict", "selection_gone",
   "rate_limited", "jd_offline", "jd_error", "internal",
 ]);
 

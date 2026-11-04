@@ -301,6 +301,7 @@ const base = {
   "err.bad_request": "The input does not fit.",
   "err.not_found": "That is gone.",
   "err.conflict": "That is not possible right now. JDownloader may be waiting for an answer.",
+  "err.selection_gone": "The selected entries are no longer in JDownloader. Nothing was removed.",
   "err.rate_limited": "Too many attempts. Please wait a moment.",
   "err.rate_limited_after.one": "Too many attempts. Please wait {n} second.",
   "err.rate_limited_after.other": "Too many attempts. Please wait {n} seconds.",

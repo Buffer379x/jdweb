@@ -1,4 +1,5 @@
 import { useMemo, useRef, useState } from "preact/hooks";
+import { isApiError } from "../api/client.ts";
 import type { CleanupAction, CleanupMode, CleanupSelection, LinkVariant } from "../api/types.ts";
 import { ConfirmDialog, Dialog } from "../components/Dialog.tsx";
 import { CLEANUP_ACTIONS as ACTIONS, cleanupCount } from "../lib/cleanup.ts";
@@ -96,7 +97,10 @@ export function CleanupDialog({ store, onClose }: { store: AnyStore; onClose: ()
   const filesAffected = mode !== "REMOVE_LINKS_ONLY";
   const run = async () => {
     setBusy(true);
-    const r = await runAction(list, "cleanup", cleanupBody(hasSel ? tg : { ...tg, linkIds: [], packageIds: [] }, { action, mode, selection }), store);
+    const r = await runAction(list, "cleanup", cleanupBody(hasSel ? tg : { ...tg, linkIds: [], packageIds: [] }, { action, mode, selection }), store, (e) => {
+      // The selection is gone in JDownloader: the toast says so, nothing is left to retry here.
+      if (isApiError(e) && e.code === "selection_gone") onClose();
+    });
     if (r) onClose();
     else setBusy(false);
   };

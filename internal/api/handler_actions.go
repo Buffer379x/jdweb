@@ -373,8 +373,79 @@ func runCleanup(ctx context.Context, srv *Server, c *jd.Client, list state.List,
 		if len(links) == 0 {
 			return nil, nil // nothing is unselected; an empty SELECTED would mean everything
 		}
+	} else if sel == jd.SelectionSelected {
+		// The ids come from the browser and can be stale. JDownloader keeps
+		// everything when none of the ids exists (tested against revision 50639),
+		// but an empty SELECTED list is documented as "everything", so JDWeb
+		// does not lean on that: it asks which ids exist now and sends only
+		// those. Nothing left means no call. What remains open is the moment
+		// between this read and the call: an entry removed in it is ignored by
+		// JDownloader, and one that is gone is never replaced by another id.
+		var err error
+		if links, pkgs, err = stillThere(ctx, c, list, links, pkgs); err != nil {
+			return nil, err
+		}
+		if len(links) == 0 && len(pkgs) == 0 {
+			return nil, errSelectionGone
+		}
 	}
 	return nil, ops(c, list).Cleanup(ctx, links, pkgs, a, m, sel)
+}
+
+// stillThere returns the links and packages of the ids that JDownloader has now.
+func stillThere(ctx context.Context, c *jd.Client, list state.List, links, pkgs []int64) (outLinks, outPkgs []int64, err error) {
+	haveLink := make(map[int64]bool)
+	havePkg := make(map[int64]bool)
+	if list == state.Linkgrabber {
+		if len(links) > 0 {
+			all, err := c.GrabberLinks(ctx, jd.GrabberLinkQuery{})
+			if err != nil {
+				return nil, nil, err
+			}
+			for _, l := range all {
+				haveLink[l.UUID] = true
+			}
+		}
+		if len(pkgs) > 0 {
+			all, err := c.GrabberPackages(ctx, jd.GrabberPackageQuery{})
+			if err != nil {
+				return nil, nil, err
+			}
+			for _, p := range all {
+				havePkg[p.UUID] = true
+			}
+		}
+	} else {
+		if len(links) > 0 {
+			all, err := c.DownloadLinks(ctx, jd.DownloadLinkQuery{})
+			if err != nil {
+				return nil, nil, err
+			}
+			for _, l := range all {
+				haveLink[l.UUID] = true
+			}
+		}
+		if len(pkgs) > 0 {
+			all, err := c.DownloadPackages(ctx, jd.DownloadPackageQuery{})
+			if err != nil {
+				return nil, nil, err
+			}
+			for _, p := range all {
+				havePkg[p.UUID] = true
+			}
+		}
+	}
+	for _, id := range links {
+		if haveLink[id] {
+			outLinks = append(outLinks, id)
+		}
+	}
+	for _, id := range pkgs {
+		if havePkg[id] {
+			outPkgs = append(outPkgs, id)
+		}
+	}
+	return outLinks, outPkgs, nil
 }
 
 // withoutOffline drops offline links from a move to the downloads. JDownloader
