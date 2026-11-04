@@ -8,7 +8,7 @@
 //
 // A small control server (-ctl) simulates what a browser test needs:
 // GET /down and /up (JDownloader restarts), /captcha, /add (a package in the
-// linkgrabber), /state (a line of text).
+// linkgrabber), /package and /many (more download links), /state (a line of text).
 package main
 
 import (
@@ -19,6 +19,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"time"
 
@@ -150,6 +151,13 @@ func seed(s *testjd.Server) {
 }
 
 func seedMany(s *testjd.Server, n int) {
+	addMany(s, n)
+	s.AddPackage(testjd.Linkgrabber, testjd.Package{Name: "Gesammelt", SaveTo: "/mnt/downloads/gesammelt"},
+		link("gesammelt-1.bin", "example.org", 10*mb, 0, nil), link("gesammelt-2.bin", "example.org", 10*mb, 0, nil))
+}
+
+// addMany adds n download links in packages of 100, in all states.
+func addMany(s *testjd.Server, n int) {
 	hosts := []string{"youtube.com", "debian.org", "archive.org", "mediafire.com", "example.org"}
 	rng := rand.New(rand.NewSource(1))
 	for p := 0; p*100 < n; p++ {
@@ -178,8 +186,26 @@ func seedMany(s *testjd.Server, n int) {
 		}
 		s.AddPackage(testjd.Downloads, testjd.Package{Name: fmt.Sprintf("Paket %03d", p), SaveTo: fmt.Sprintf("/mnt/downloads/paket-%03d", p)}, links...)
 	}
-	s.AddPackage(testjd.Linkgrabber, testjd.Package{Name: "Gesammelt", SaveTo: "/mnt/downloads/gesammelt"},
-		link("gesammelt-1.bin", "example.org", 10*mb, 0, nil), link("gesammelt-2.bin", "example.org", 10*mb, 0, nil))
+}
+
+// addPackage adds one download package of n links: 40 % finished, 10 % running, 5 % failed, the rest waiting.
+func addPackage(s *testjd.Server, name string, n int) {
+	links := make([]testjd.Link, n)
+	for i := range links {
+		l := link(fmt.Sprintf("%s-%04d.bin", name, i), "example.org", 100*mb, 0, nil)
+		switch r := i * 100 / max(n, 1); {
+		case r < 40:
+			finished(&l)
+		case r < 50:
+			running(1 * mb)(&l)
+			l.BytesLoaded = 30 * mb
+		case r < 55:
+			l.ExtractionStatus = "ERROR_CRC"
+			finished(&l)
+		}
+		links[i] = l
+	}
+	s.AddPackage(testjd.Downloads, testjd.Package{Name: name, SaveTo: "/mnt/downloads/" + name}, links...)
 }
 
 // advance moves the running downloads forward and tells JDownloader's
@@ -222,6 +248,17 @@ func serveControl(s *testjd.Server, addr string) {
 	mux.HandleFunc("/dialogs", func(w http.ResponseWriter, _ *http.Request) {
 		addDialogs(s)
 		fmt.Fprintln(w, "dialogs")
+	})
+	// /package?name=X&links=N: one more download package. /many?links=N: N more links in packages of 100.
+	mux.HandleFunc("/package", func(w http.ResponseWriter, r *http.Request) {
+		n, _ := strconv.Atoi(r.URL.Query().Get("links"))
+		addPackage(s, r.URL.Query().Get("name"), n)
+		fmt.Fprintln(w, "package")
+	})
+	mux.HandleFunc("/many", func(w http.ResponseWriter, r *http.Request) {
+		n, _ := strconv.Atoi(r.URL.Query().Get("links"))
+		addMany(s, n)
+		fmt.Fprintln(w, "many")
 	})
 	mux.HandleFunc("/state", func(w http.ResponseWriter, _ *http.Request) {
 		fmt.Fprintln(w, s.Controller(), len(s.Links(testjd.Downloads)), len(s.Links(testjd.Linkgrabber)))

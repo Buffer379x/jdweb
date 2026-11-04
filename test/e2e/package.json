@@ -1,0 +1,15 @@
+{
+  "name": "jdweb-e2e",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "packageManager": "pnpm@10.34.9",
+  "scripts": {
+    "test": "playwright test"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "4.11.3",
+    "@playwright/test": "1.62.1",
+    "@types/node": "26.6.6"
+  }
+}
