@@ -36,7 +36,7 @@ cleanup() {
   docker rm -f "$APP" "$FAKE_APP" "$FAKE_JD" >/dev/null 2>&1 || true
   [ -z "${TMPBIN:-}" ] || rm -rf "$TMPBIN"
 }
-trap cleanup EXIT
+trap 'rc=$?; cleanup; exit $rc' EXIT
 
 docker container inspect "$JD_CONTAINER" >/dev/null 2>&1 || die "the test stack is not running: scripts/teststack.sh up"
 docker network inspect "$NETWORK" >/dev/null 2>&1 || die "network $NETWORK is missing: scripts/teststack.sh up"
@@ -79,10 +79,7 @@ fi
 
 cd "$ROOT/test/e2e"
 [ -d node_modules ] || pnpm install --frozen-lockfile
-projects=()
-case "$what" in
-  real) projects=(--project=real) ;;
-  fake) projects=(--project=fake) ;;
-esac
+proj=""
+[ "$what" = "all" ] || proj="$what"
 export E2E_URL="http://127.0.0.1:${APP_PORT}" E2E_FAKE_URL="http://127.0.0.1:${FAKE_APP_PORT}" E2E_FAKE_CTL="http://127.0.0.1:${FAKE_CTL_PORT}"
-pnpm exec playwright test "${projects[@]}" "$@"
+pnpm exec playwright test ${proj:+--project="$proj"} "$@"
