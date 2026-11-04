@@ -1,7 +1,9 @@
 package api
 
 import (
+	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -194,6 +196,25 @@ func TestToDownloadsLeavesOfflineLinksBehind(t *testing.T) {
 	}
 	if out := post(map[string]any{"linkIds": ids(links[1], links[0])}); out != (result{1, 1}) {
 		t.Errorf("offline link picked on its own: %+v", out)
+	}
+}
+
+// A package that goes out whole, together with its own link ids, counts each link once.
+func TestToDownloadsCountsALinkOnceWhenItsPackageGoesToo(t *testing.T) {
+	e := newEnv(t, withRun, withFastSync)
+	pkg, links := e.jd.AddPackage(testjd.Linkgrabber, testjd.Package{Name: "online"}, testjd.Link{Name: "a"}, testjd.Link{Name: "b"})
+	e.waitConnected()
+	eventually(t, "links in the mirror", func() bool { return len(e.mirror.Snapshot(state.Linkgrabber).LgLinks) == 2 })
+	e.jd.ResetCalls()
+	r := e.post("/api/v1/linkgrabber/actions/to-downloads", map[string]any{"packageIds": ids(pkg), "linkIds": ids(links...)})
+	e.expect(r, 200)
+	var out struct{ Moved, SkippedOffline int }
+	r.json(t, &out)
+	if out.Moved != 2 || out.SkippedOffline != 0 {
+		t.Errorf("answer = %+v, want moved 2", out)
+	}
+	if got, want := argsJSON(e.lastCall("/linkgrabberv2/moveToDownloadlist")), fmt.Sprintf("[[],[%d]]", pkg); got != want {
+		t.Errorf("params = %s, want %s (the package once, no link ids on top)", got, want)
 	}
 }
 
@@ -411,10 +432,8 @@ func TestAddVariantDefaultsToThePlaceOfTheOriginal(t *testing.T) {
 // JDownloader refuses the selection type UNSELECTED ("not yet supported",
 // revision 50639). JDWeb asks for SELECTED on the links that are not selected.
 func TestCleanupUnselectedBecomesSelectedOnTheOthers(t *testing.T) {
-	e := newEnv(t, withRun, withFastSync)
+	e := newEnv(t)
 	s := e.seed()
-	e.waitConnected()
-	eventually(t, "both links in the mirror", func() bool { return len(e.mirror.Snapshot(state.Downloads).DlLinks) == 2 })
 	body := func(links ...int64) map[string]any {
 		return map[string]any{"linkIds": ids(links...), "action": "DELETE_ALL", "mode": "REMOVE_LINKS_ONLY", "selection": "UNSELECTED"}
 	}
@@ -429,5 +448,79 @@ func TestCleanupUnselectedBecomesSelectedOnTheOthers(t *testing.T) {
 	e.expect(e.post("/api/v1/downloads/actions/cleanup", map[string]any{"packageIds": ids(s.dlPkg), "action": "DELETE_ALL", "mode": "REMOVE_LINKS_ONLY", "selection": "UNSELECTED"}), 204)
 	if n := len(e.jdCalls("/downloadsV2/cleanup")); n != 0 {
 		t.Errorf("JDownloader was called %d times with nothing to clean", n)
+	}
+}
+
+func cleanupUnselected(links, pkgs []int64) map[string]any {
+	return map[string]any{"linkIds": ids(links...), "packageIds": ids(pkgs...), "action": "DELETE_ALL", "mode": "REMOVE_LINKS_ONLY", "selection": "UNSELECTED"}
+}
+
+// cleanupSent returns the link ids of the last cleanup call JDownloader got, sorted.
+func (e *env) cleanupSent(path string) (links []int64, sel string) {
+	e.t.Helper()
+	p := e.lastCall(path).Args()
+	if len(p) < 5 {
+		e.t.Fatalf("cleanup params: %s", argsJSON(e.lastCall(path)))
+	}
+	_ = json.Unmarshal(p[0], &links)
+	_ = json.Unmarshal(p[4], &sel)
+	slices.Sort(links)
+	return links, sel
+}
+
+// UNSELECTED reads the list fresh from JDownloader for this one call. The
+// mirror here never ran, so it knows nothing: a mirror that is stale or still
+// loading must not decide what is deleted.
+func TestCleanupUnselectedReadsJDownloaderNotTheMirror(t *testing.T) {
+	e := newEnv(t) // the engine does not run: the mirror stays empty
+	_, a := e.jd.AddPackage(testjd.Downloads, testjd.Package{Name: "x"}, testjd.Link{Name: "1"}, testjd.Link{Name: "2"})
+	_, b := e.jd.AddPackage(testjd.Downloads, testjd.Package{Name: "y"}, testjd.Link{Name: "3"})
+	e.jd.ResetCalls()
+	e.expect(e.post("/api/v1/downloads/actions/cleanup", cleanupUnselected(a[:1], nil)), 204)
+	got, sel := e.cleanupSent("/downloadsV2/cleanup")
+	want := []int64{a[1], b[0]}
+	slices.Sort(want)
+	if !slices.Equal(got, want) || sel != "SELECTED" {
+		t.Errorf("sent %v %s, want %v SELECTED (the sibling of the selected link and the other package)", got, sel, want)
+	}
+}
+
+// A link added in JDownloader after the user made the selection is not in the
+// selected set; it is deleted with the rest. A link that is selected never is.
+func TestCleanupUnselectedSparesTheSelectionAndTheSelectedPackage(t *testing.T) {
+	e := newEnv(t)
+	pk, a := e.jd.AddPackage(testjd.Downloads, testjd.Package{Name: "x"}, testjd.Link{Name: "1"}, testjd.Link{Name: "2"})
+	_, b := e.jd.AddPackage(testjd.Downloads, testjd.Package{Name: "y"}, testjd.Link{Name: "3"})
+	late := e.jd.AddLink(testjd.Downloads, pk, testjd.Link{Name: "late"}) // inside the selected package
+	e.jd.ResetCalls()
+	e.expect(e.post("/api/v1/downloads/actions/cleanup", cleanupUnselected(nil, []int64{pk})), 204)
+	got, _ := e.cleanupSent("/downloadsV2/cleanup")
+	if !slices.Equal(got, b) {
+		t.Errorf("sent %v, want only %v; %v and %v belong to the selected package", got, b, a, late)
+	}
+}
+
+func TestCleanupUnselectedJDownloaderOffline(t *testing.T) {
+	e := newEnv(t)
+	_, a := e.jd.AddPackage(testjd.Downloads, testjd.Package{Name: "x"}, testjd.Link{Name: "1"}, testjd.Link{Name: "2"})
+	e.jd.Down()
+	e.expectErr(e.post("/api/v1/downloads/actions/cleanup", cleanupUnselected(a[:1], nil)), 503, "jd_offline")
+}
+
+func TestCleanupUnselectedLargeList(t *testing.T) {
+	e := newEnv(t)
+	links := make([]testjd.Link, 10_000)
+	for i := range links {
+		links[i] = testjd.Link{Name: fmt.Sprint("f", i)}
+	}
+	_, all := e.jd.AddPackage(testjd.Linkgrabber, testjd.Package{Name: "big"}, links...)
+	e.jd.ResetCalls()
+	e.expect(e.post("/api/v1/linkgrabber/actions/cleanup", cleanupUnselected(all[:3], nil)), 204)
+	if n := len(e.jdCalls("/linkgrabberv2/cleanup")); n != 1 {
+		t.Fatalf("%d cleanup calls, want 1", n)
+	}
+	got, _ := e.cleanupSent("/linkgrabberv2/cleanup")
+	if len(got) != len(all)-3 {
+		t.Errorf("sent %d ids, want %d", len(got), len(all)-3)
 	}
 }

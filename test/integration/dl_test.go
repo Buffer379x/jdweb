@@ -4,6 +4,7 @@ package integration
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -456,7 +457,7 @@ func (a *app) mixed(t *testing.T, c *jd.Client, tag string) (ids map[string]stri
 	wipe(t, c)
 	waitFor(t, "an empty mirror", 20*time.Second, func() bool { return len(a.downloads(t).Links) == 0 })
 	n := func(s string) string { return "it-" + tag + "-" + s + ".bin" }
-	l := a.stage(t, prefix+tag, directory(tag), fx("/"+n("fin")), fx("/offline/"+n("off")), fx("/"+n("dis")), fx("/"+n("wait")))
+	l := a.stageWithOffline(t, prefix+tag, directory(tag), fx("/"+n("fin")), fx("/offline/"+n("off")), fx("/"+n("dis")), fx("/"+n("wait")))
 	a.finish(t, l, n("fin"), n("off"))
 	dis, _ := a.downloads(t).link(n("dis"))
 	a.action(t, "downloads", "disable", sel([]string{dis.ID}, nil))
@@ -473,6 +474,36 @@ func (a *app) mixed(t *testing.T, c *jd.Client, tag string) (ids map[string]stri
 		ids[strings.TrimSuffix(strings.TrimPrefix(k.Name, "it-"+tag+"-"), ".bin")] = k.ID
 	}
 	return ids
+}
+
+// stageWithOffline is stage for a list that holds an offline link. JDWeb leaves offline links in the linkgrabber
+// (T-LG-07), so the links go to the download list through internal/jd, by link id: JDownloader then takes the
+// offline one along, and it fails when it is downloaded.
+func (a *app) stageWithOffline(t testing.TB, pkg, dir string, urls ...string) dlList {
+	t.Helper()
+	g := a.add(t, pkg, dir, urls...)
+	var ids []int64
+	for _, k := range g.Links {
+		n, err := strconv.ParseInt(k.ID, 10, 64)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, n)
+	}
+	if err := direct().MoveToDownloads(bg(), ids, nil); err != nil {
+		t.Fatal(err)
+	}
+	var l dlList
+	waitFor(t, "the links in the download list", 60*time.Second, func() bool {
+		l = a.downloads(t)
+		for _, u := range urls {
+			if _, ok := l.link(baseName(u)); !ok {
+				return false
+			}
+		}
+		return true
+	})
+	return l
 }
 
 // remaining is the set of kinds left in the list.
@@ -539,6 +570,48 @@ func TestDL13_Cleanup(t *testing.T) {
 			t.Errorf("%s (%s/%s): left %q, want %q", k.name, k.action, k.selection, got, k.left)
 		}
 	}
+}
+
+// T-DL-13 (UNSELECTED, fresh read): the unselected links are read from JDownloader for the call. A package with
+// a selected and an unselected link loses only the unselected one, a second package goes whole, and the wide id
+// list (300 links) passes through JDownloader's own cleanup.
+func TestDL13_UnselectedReadsJDownloader(t *testing.T) {
+	cleanJD(t)
+	a := shared(t)
+	var urls, other []string
+	for i := 0; i < 300; i++ {
+		urls = append(urls, fx(fmt.Sprintf("/it-dl13u-a%03d.bin", i)))
+	}
+	for i := 0; i < 5; i++ {
+		other = append(other, fx(fmt.Sprintf("/it-dl13u-b%d.bin", i)))
+	}
+	a.add(t, prefix+"dl13u-a", directory("dl13u-a"), urls...)
+	g := a.add(t, prefix+"dl13u-b", directory("dl13u-b"), other...)
+	var keep []string
+	for _, n := range []string{"it-dl13u-a000.bin", "it-dl13u-a299.bin", "it-dl13u-b0.bin"} {
+		k, ok := g.link(n)
+		if !ok {
+			t.Fatalf("link %s not in the linkgrabber", n)
+		}
+		keep = append(keep, k.ID)
+	}
+	a.action(t, "linkgrabber", "cleanup", with(sel(keep, nil), "action", "DELETE_ALL", "mode", "REMOVE_LINKS_ONLY", "selection", "UNSELECTED"))
+	waitFor(t, "only the selected links are left", 30*time.Second, func() bool {
+		l := a.grabber(t)
+		if len(l.Links) != 3 {
+			return false
+		}
+		for _, id := range keep {
+			found := false
+			for _, k := range l.Links {
+				found = found || k.ID == id
+			}
+			if !found {
+				return false
+			}
+		}
+		return true
+	})
 }
 
 // T-DL-13 (DELETE_MODE): the one action whose effect the contract does not name; the result is recorded.

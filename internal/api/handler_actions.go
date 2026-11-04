@@ -364,8 +364,12 @@ func runCleanup(ctx context.Context, srv *Server, c *jd.Client, list state.List,
 	if sel == jd.SelectionUnselected {
 		// JDownloader answers UNSELECTED with "SelectionType UNSELECTED not yet
 		// supported" (revision 50639). The same is asked with SELECTED on the
-		// links that are not selected, taken from the mirror.
-		links, pkgs, sel = srv.unselectedLinks(list, links, pkgs), nil, jd.SelectionSelected
+		// links that are not selected, read from JDownloader for this call.
+		fresh, err := unselectedLinks(ctx, c, list, links, pkgs)
+		if err != nil {
+			return nil, err
+		}
+		links, pkgs, sel = fresh, nil, jd.SelectionSelected
 		if len(links) == 0 {
 			return nil, nil // nothing is unselected; an empty SELECTED would mean everything
 		}
@@ -391,6 +395,7 @@ func (s *Server) withoutOffline(links, pkgs []int64) (outLinks, outPkgs []int64,
 		pkgByID[p.ID] = p
 	}
 	seen := make(map[int64]bool)
+	whole := make(map[string]bool) // packages that go out as a package: their links need no id of their own
 	addLink := func(l state.LgLink) {
 		n, err := parseID(l.ID)
 		if err != nil || seen[n] {
@@ -407,6 +412,10 @@ func (s *Server) withoutOffline(links, pkgs []int64) (outLinks, outPkgs []int64,
 	for _, id := range pkgs {
 		p, known := pkgByID[idString(id)]
 		if !known || p.OfflineCount == 0 || len(byPkg[p.ID]) == 0 {
+			if whole[idString(id)] {
+				continue
+			}
+			whole[idString(id)] = true
 			outPkgs = append(outPkgs, id)
 			moved += max(1, len(byPkg[idString(id)]))
 			continue
@@ -417,7 +426,9 @@ func (s *Server) withoutOffline(links, pkgs []int64) (outLinks, outPkgs []int64,
 	}
 	for _, id := range links {
 		if l, ok := byID[idString(id)]; ok {
-			addLink(l)
+			if !whole[l.PackageID] {
+				addLink(l)
+			}
 			continue
 		}
 		if !seen[id] {
@@ -429,33 +440,44 @@ func (s *Server) withoutOffline(links, pkgs []int64) (outLinks, outPkgs []int64,
 	return outLinks, outPkgs, moved, skipped
 }
 
-// unselectedLinks returns the ids of all links of the list that are neither
-// selected nor in a selected package.
-func (s *Server) unselectedLinks(list state.List, links, pkgs []int64) []int64 {
-	skip := make(map[string]bool, len(links)+len(pkgs))
+// unselectedLinks reads the link and package ids of the list from JDownloader
+// itself and returns the links that are neither selected nor in a selected
+// package. The mirror is not used on purpose: a stale or still loading mirror
+// must not decide what gets deleted. A link that JDownloader got after this
+// read is not in the answer and stays, which is the safe side.
+func unselectedLinks(ctx context.Context, c *jd.Client, list state.List, links, pkgs []int64) ([]int64, error) {
+	skipLink := make(map[int64]bool, len(links))
 	for _, id := range links {
-		skip["l"+idString(id)] = true
+		skipLink[id] = true
 	}
+	skipPkg := make(map[int64]bool, len(pkgs))
 	for _, id := range pkgs {
-		skip["p"+idString(id)] = true
+		skipPkg[id] = true
 	}
 	var out []int64
-	add := func(id, pkg string) {
-		if skip["l"+id] || skip["p"+pkg] {
-			return
-		}
-		if n, err := parseID(id); err == nil {
-			out = append(out, n)
+	add := func(id, pkg int64) {
+		if !skipLink[id] && !skipPkg[pkg] {
+			out = append(out, id)
 		}
 	}
-	snap := s.mirror.Snapshot(list)
-	for _, l := range snap.DlLinks {
-		add(l.ID, l.PackageID)
+	if list == state.Linkgrabber {
+		all, err := c.GrabberLinks(ctx, jd.GrabberLinkQuery{})
+		if err != nil {
+			return nil, err
+		}
+		for _, l := range all {
+			add(l.UUID, l.PackageUUID)
+		}
+		return out, nil
 	}
-	for _, l := range snap.LgLinks {
-		add(l.ID, l.PackageID)
+	all, err := c.DownloadLinks(ctx, jd.DownloadLinkQuery{})
+	if err != nil {
+		return nil, err
 	}
-	return out
+	for _, l := range all {
+		add(l.UUID, l.PackageUUID)
+	}
+	return out, nil
 }
 
 func joinEnum[T ~string](vs []T) string {
