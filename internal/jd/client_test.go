@@ -3,6 +3,7 @@ package jd_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -401,6 +402,26 @@ func TestNormalizeURL(t *testing.T) {
 		}
 		if !errors.Is(err, jd.ErrInvalidURL) {
 			t.Errorf("NormalizeURL(%q) error does not wrap ErrInvalidURL: %v", in, err)
+		}
+	}
+}
+
+// A JSON answer that does not fit the expected shape can hold a secret (a
+// password, an API key): the body is not kept, so it cannot reach a log.
+func TestShapeMismatchDoesNotKeepTheBody(t *testing.T) {
+	s := newStub(t, map[string]reply{"/x": {200, []byte(`{"data":{"password":"hunter2-secret"}}`)}})
+	var out int
+	err := s.client().Call(context.Background(), "/x", &out)
+	if !jd.IsInvalidResponse(err) {
+		t.Fatalf("err = %v, want JD_INVALID_RESPONSE", err)
+	}
+	var e *jd.Error
+	if !errors.As(err, &e) {
+		t.Fatalf("not a *jd.Error: %v", err)
+	}
+	for _, text := range []string{e.Raw, err.Error(), fmt.Sprint(errors.Unwrap(err))} {
+		if strings.Contains(text, "hunter2") {
+			t.Errorf("the body leaked into %q", text)
 		}
 	}
 }

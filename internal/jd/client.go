@@ -280,7 +280,8 @@ func decodeResponse(path string, status int, body []byte, out any) error {
 		return nil
 	}
 	if err := json.Unmarshal(env.Data, out); err != nil {
-		return &Error{Status: status, Path: path, Type: TypeInvalidResponse, Raw: clip(body), cause: err}
+		// The body is not kept: it fits no expected shape and can hold a secret.
+		return &Error{Status: status, Path: path, Type: TypeInvalidResponse, Raw: "the answer does not have the expected shape", cause: err}
 	}
 	return nil
 }
