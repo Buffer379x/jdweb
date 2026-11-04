@@ -18,7 +18,7 @@ JDWeb talks to the API of your own JDownloader over your own network and gives y
 
 - **Downloads** with live progress, packages and links, start, stop and pause, priority, rename, reorder by drag and drop, cleanup, filter and sort. Handles thousands of links (virtual scrolling).
 - **Link grabber**: add links or container files, pick variants, check availability, move to downloads.
-- **Captchas and questions** from JDownloader, in the browser: image captchas, skip, answer dialogs.
+- **Captchas and questions** from JDownloader, in the browser: image captchas, skip, answer dialogs. Interactive captchas (reCAPTCHA, hCaptcha and the like) cannot be solved in JDWeb: unlike my.jdownloader.org it can only explain them and skip them. Solve those in JDownloader itself, or skip them and let JDownloader try the next source.
 - **Extraction, hoster accounts, settings**, including all advanced settings, plugins and extensions.
 - **Live** through server-sent events. JDownloader restarts? The page shows it, heals itself and catches up.
 - **Safe by default** (JDWeb's own login and page; for JDownloader's API see [Security](#security-read-this)): account with Argon2id password, optional two-factor (TOTP), setup only with a one-time token, CSRF checks, strict CSP, no third-party resources, fonts inside the image.
@@ -67,7 +67,7 @@ If JDownloader runs on another device (desktop), the API is open to the whole ne
 
 ### HTTPS
 
-JDWeb speaks plain HTTP. On a trusted home network that is acceptable, but password and session cookie can then be read by anyone on the same network, and browsers offer installable web apps and notifications only on HTTPS. For HTTPS put JDWeb behind your reverse proxy or use [Tailscale Serve](https://tailscale.com/kb/1312/serve), and set `JDWEB_TRUSTED_PROXIES` to the proxy's address so that `X-Forwarded-*` is believed and the cookie gets the `Secure` flag.
+JDWeb speaks plain HTTP. On a trusted home network that is acceptable, but password and session cookie can then be read by anyone on the same network, and browsers offer installable web apps and notifications only on HTTPS. For HTTPS put JDWeb behind your reverse proxy or use [Tailscale Serve](https://tailscale.com/kb/1312/serve), and set `JDWEB_TRUSTED_PROXIES` to the proxy's address so that `X-Forwarded-*` is believed and the cookie gets the `Secure` flag. The proxy must pass the original `Host` header (nginx: `proxy_set_header Host $host;`): a proxy that rewrites it makes the login fail with a 403.
 
 ## Install on Unraid
 
@@ -82,8 +82,17 @@ JDWeb speaks plain HTTP. On a trusted home network that is acceptable, but passw
 3. **Docker**, **Add Container**, pick the template **JDWeb**.
 4. **Network Type**: one that can reach JDownloader (the same network JDownloader uses is the safe choice). If JDownloader has its own address on `br0` or another macvlan network, a container in the `bridge` network cannot reach it unless **Settings, Docker, "Host access to custom networks"** is on; the simplest fix is to put JDWeb on the same `br0` network.
 5. **JDownloader address**: `JDWEB_JD_URL` = `http://<JDownloader-IP>:3128`. In a custom network both containers share, `http://<container-name>:3128` works too.
-6. Keep **Data** on the cache or a pool: `/mnt/cache/appdata/jdweb`, not `/mnt/user/...` (FUSE is a risk for SQLite).
+6. Keep **Data** on the cache or a pool: `/mnt/cache/appdata/jdweb`, not `/mnt/user/...` (FUSE is a risk for SQLite). If you have no pool named `cache`, `/mnt/cache` is not a disk: the folder then lives in RAM and the account and settings are gone after a reboot. Use the path of a pool you have (for example `/mnt/<pool name>/appdata/jdweb`).
 7. **Apply.** Open the container's **Logs** and copy the one-time **setup token**. Open the WebUI, enter the token and create your account. The setup check then confirms the connection or names the fix.
+
+### JDownloader in Unraid's default `bridge` network
+
+The usual JDownloader template publishes only its web port (5800). Port 3128 is not published, so `http://<Unraid-IP>:3128` does not answer, and a JDWeb container in `bridge` cannot reach JDownloader by name either (names work only in networks you create yourself). Four ways, with their trade-offs:
+
+- **Publish 3128 on the JDownloader container** (add a Port mapping `3128` to `3128` there) and use `http://<Unraid-IP>:3128`. This changes the JDownloader container, and it widens who can reach its login-free API: every device that can reach the Unraid host. Read [Security](#security-read-this) first.
+- **A network both containers share**, created by you (for example `docker network create jdnet`, then **Network Type** `Custom: jdnet` on both) and `http://<JDownloader container name>:3128`. Nothing is published, but JDownloader gets a new network and IP address, and you edit its container once ([Option A](#option-a-a-network-of-their-own)).
+- **`--net=container:<JDownloader container name>`** with `http://127.0.0.1:3128`: the API stays on localhost. The caveat is that JDWeb breaks whenever the JDownloader container is restarted or recreated ([Option B](#option-b-share-jdownloaders-network)).
+- **The internal address of the JDownloader container** (`http://172.17.0.x:3128`, shown by `docker inspect`). Two containers in `bridge` reach each other on it without publishing anything, but Docker can hand out a different address after a restart or an update, and JDWeb loses JDownloader until you correct the address.
 
 The template starts the container as root (`--user 0:0`, read-only file system, no new privileges, 256 MB memory limit). JDWeb gives `/data` to `PUID:PGID` (99:100 = `nobody:users`) and drops root before it opens the database, so folders that Docker created as root just work.
 
@@ -152,6 +161,6 @@ pnpm --dir web dev                   # Vite dev server, proxies /api to :7468
 
 ## License
 
-[MIT](LICENSE). The fonts (Barlow, Barlow Condensed, IBM Plex Mono) are under the SIL Open Font License, see `web/public/licenses/`.
+[MIT](LICENSE). The fonts (Barlow, Barlow Condensed, IBM Plex Mono) are under the SIL Open Font License, see `web/public/licenses/`. The licences of the Go modules and npm packages that ship in the image are in [THIRD_PARTY_NOTICES.txt](web/public/licenses/THIRD_PARTY_NOTICES.txt); the same file is served by JDWeb at `/licenses/THIRD_PARTY_NOTICES.txt`. `python3 scripts/gen-notices.py` writes it again after a dependency changes.
 
 JDWeb is provided as is, without warranty. You use it at your own risk; the authors are not liable for lost downloads, data or damage that arises from controlling JDownloader with it. Do not expose JDWeb or JDownloader to the internet without HTTPS and your own access control.

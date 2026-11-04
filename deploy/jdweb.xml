@@ -12,7 +12,7 @@
 &#xD;
 Before the first start, change two advanced settings in JDownloader (Settings, Advanced Settings): "RemoteAPIConfig: Deprecated Api Enabled" = true and "RemoteAPIConfig: Deprecated Api Localhost Only" = false. Then restart JDownloader. JDownloader's network, IP and Docker settings stay as they are.&#xD;
 &#xD;
-Then set JDWEB_JD_URL to http://&lt;JDownloader-IP&gt;:3128 and choose a network that can reach JDownloader.&#xD;
+Then set JDWEB_JD_URL to http://&lt;JDownloader-IP&gt;:3128 and choose a network that can reach JDownloader. Note: in Unraid's default bridge network JDownloader does not publish port 3128, so that address does not answer. Publish 3128 on the JDownloader container (this widens who can reach its login-free API), put both containers into a Docker network you create and use http://&lt;container name&gt;:3128, share its network as described below, or use its internal 172.17.x address (Docker can change it). See the README on GitHub.&#xD;
 &#xD;
 First start: find the one-time setup token in the container log (Docker, then Logs), open the WebUI and create your account with it.&#xD;
 &#xD;
@@ -31,7 +31,7 @@ Note: the container starts as root (--user 0:0), gives the appdata folder to PUI
   <DonateLink/>
   <Requires/>
   <Config Name="WebUI-Port" Target="7468" Default="7468" Mode="tcp" Description="Port of the web interface." Type="Port" Display="always" Required="true" Mask="false">7468</Config>
-  <Config Name="Data (appdata)" Target="/data" Default="/mnt/cache/appdata/jdweb" Mode="rw" Description="Account, sessions and settings. Keep it on the cache or a pool, for example /mnt/cache/appdata/jdweb. Not on a network share or /mnt/user." Type="Path" Display="always" Required="true" Mask="false">/mnt/cache/appdata/jdweb</Config>
+  <Config Name="Data (appdata)" Target="/data" Default="/mnt/cache/appdata/jdweb" Mode="rw" Description="Account, sessions and settings. Keep it on the cache or a pool, for example /mnt/cache/appdata/jdweb. Not on a network share or /mnt/user. Without a pool named cache, /mnt/cache is RAM and the account is lost at every reboot: use the path of a pool you have (/mnt/&lt;pool name&gt;/appdata/jdweb)." Type="Path" Display="always" Required="true" Mask="false">/mnt/cache/appdata/jdweb</Config>
   <Config Name="JDownloader address" Target="JDWEB_JD_URL" Default="" Mode="" Description="Address of JDownloader's API: http://&lt;JD-IP&gt;:3128 (or http://&lt;container-name&gt;:3128 in a custom network both containers share). Choose a Network Type above that can reach this address. The API has no login: see the Overview." Type="Variable" Display="always" Required="true" Mask="false"/>
   <Config Name="Time zone" Target="TZ" Default="Europe/Berlin" Mode="" Description="Time zone for the log." Type="Variable" Display="always" Required="false" Mask="false">Europe/Berlin</Config>
   <Config Name="PUID" Target="PUID" Default="99" Mode="" Description="User id that owns the appdata folder (Unraid: 99 = nobody)." Type="Variable" Display="advanced" Required="true" Mask="false">99</Config>
