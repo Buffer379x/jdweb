@@ -8,7 +8,7 @@ function pct(f: number): string {
 }
 
 /**
- * The segment bar (Concept 11.6). The fill of a segment is the custom property
+ * The segment bar of a package. The fill of a segment is the custom property
  * --p, set through the CSSOM by Preact; the color is a class. No style attribute is written to the markup.
  */
 export function Segbar({ segs, label }: { segs: readonly Seg[]; label: string }) {

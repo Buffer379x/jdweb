@@ -1,6 +1,6 @@
 import { signal } from "@preact/signals";
 
-// The breakpoints of Concept 11.5.
+// The breakpoints of the layout: compact (phone), normal and wide.
 const mqCompact = matchMedia("(max-width: 639px)");
 const mqWide = matchMedia("(min-width: 1100px)");
 const mqCoarse = matchMedia("(pointer: coarse)");

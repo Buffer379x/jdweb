@@ -127,8 +127,8 @@ func toAPIError(err error) (*apiError, error) {
 	return newError(http.StatusInternalServerError, codeInternal, "Internal error."), err
 }
 
-// jdError maps a failed call to JDownloader (Review Focus 1, 2 and 3: the
-// messages differ by cause and say what to do).
+// jdError maps a failed call to JDownloader (JDownloader down, an entry gone, a wrong
+// address): the messages differ by cause and say what to do.
 func jdError(e *jd.Error) *apiError {
 	switch {
 	case e.Type == jd.TypeConnection:

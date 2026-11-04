@@ -7,7 +7,7 @@ import (
 )
 
 // buildRoutes is the table of all API routes. Every route is registered here
-// and nowhere else, so that a test can walk it (T-SEC-01).
+// and nowhere else, so that a test can walk it.
 func (s *Server) buildRoutes() []Route {
 	const v1 = "/api/v1"
 	var rs []Route

@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
     inputs:
       big:
-        description: "Also run the 10,000 links case (T-LG-01), takes long"
+        description: "Also run the 10,000 links case takes long"
         type: boolean
         default: false
       e2e:

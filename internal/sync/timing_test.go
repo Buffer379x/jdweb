@@ -10,7 +10,7 @@ import (
 	"github.com/Buffer379x/jdweb/internal/state"
 )
 
-// The values the brief and Concept 5.3, 5.5 and 10.8 ask for.
+// The timing values of the sync engine.
 func TestDefaultConfig(t *testing.T) {
 	c := DefaultConfig()
 	for name, tc := range map[string]struct{ got, want time.Duration }{

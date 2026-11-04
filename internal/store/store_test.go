@@ -41,7 +41,7 @@ func columns(t *testing.T, db *DB, table string) []string {
 	return out
 }
 
-func TestSchemaMatchesConcept(t *testing.T) {
+func TestSchemaHasTheExpectedTables(t *testing.T) {
 	db := openTemp(t)
 	want := map[string]string{
 		"app_user":      "id,username,password_hash,totp_secret,created_at,updated_at",

@@ -111,7 +111,7 @@ const linkgrabberSettings = "org.jdownloader.gui.views.linkgrabber.addlinksdialo
 // tuneJD changes the settings that would disturb the tests and returns the
 // function that puts them back. LinkgrabberAutoStartEnabled (JDownloader's
 // default: on) makes the move to the download list start the downloads, whatever
-// the caller asked for (see the report of Task 9).
+// the caller asked for (see docs/api.md, to-downloads).
 func tuneJD(ctx context.Context, c *jd.Client) (restore func(), err error) {
 	type setting struct {
 		iface, key string

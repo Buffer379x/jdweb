@@ -282,7 +282,7 @@ func TestWithoutJDMisconfiguredThenOffline(t *testing.T) {
 	f.waitConn(t, state.ConnConnected)
 }
 
-// Review Focus 3: another service on the port gets its own hint.
+// Another service on the port gets its own hint.
 func TestOtherServiceOnThePort(t *testing.T) {
 	for name, h := range map[string]http.HandlerFunc{
 		"html page": func(w http.ResponseWriter, _ *http.Request) {
@@ -312,7 +312,7 @@ func TestOtherServiceOnThePort(t *testing.T) {
 	}
 }
 
-// Review Focus 3: every kind of bad address has a different, clear hint.
+// Every kind of bad address has a different, clear hint.
 func TestHintsDiffer(t *testing.T) {
 	other := httptest.NewServer(http.NotFoundHandler())
 	defer other.Close()
@@ -351,7 +351,7 @@ func TestNoAddressYetThenSetURL(t *testing.T) {
 	}
 }
 
-// Review Focus 1, the heart of this package: JDownloader goes away while links
+// The heart of this package: JDownloader goes away while links
 // run and a browser is open.
 func TestRestartWhileDownloadsRun(t *testing.T) {
 	srv := testjd.New(t)
@@ -647,7 +647,7 @@ type roundTrip func(*http.Request) (*http.Response, error)
 
 func (f roundTrip) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
-// The safety net of Concept 5.3: a change nobody announced is found through the
+// The safety net: a change nobody announced is found through the
 // structure counters.
 func TestStructureCounterFindsSilentChanges(t *testing.T) {
 	srv := testjd.New(t)
@@ -1003,7 +1003,7 @@ func TestSetURLSwapsTheConnection(t *testing.T) {
 	f.waitConn(t, state.ConnConnected)
 	f.inbox.reset()
 
-	// A slash at the end and a missing scheme are fine (Review Focus 3).
+	// A slash at the end and a missing scheme are fine.
 	if err := f.e.SetURL(strings.TrimPrefix(b.URL, "http://") + "/"); err != nil {
 		t.Fatal(err)
 	}
@@ -1606,7 +1606,7 @@ func TestNoGoroutineLeaks(t *testing.T) {
 	}
 }
 
-// Concept 10.8: below 150 MB with 10,000 links, here with a full load, every
+// Below 150 MB with 10,000 links, here with a full load, every
 // link in progress and the fake in the same process.
 func TestEngineWith10000Links(t *testing.T) {
 	if testing.Short() {

@@ -23,8 +23,8 @@ type captchaDTO struct {
 
 // interactiveHints are parts of the type names of challenges the browser
 // cannot show as a picture. Anything else is taken for an image captcha. The
-// names are a guess from the JDownloader sources, not yet seen on a real job
-// (Concept R7).
+// names are a guess from the JDownloader sources, not yet seen on a real job:
+// a type that is missing from the list shows as an image captcha.
 var interactiveHints = []string{"recaptcha", "hcaptcha", "turnstile", "click", "interactive", "geetest", "funcaptcha", "cutcaptcha", "friendly"}
 
 func captchaKind(j jd.CaptchaJob) string {

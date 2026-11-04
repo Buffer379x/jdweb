@@ -96,8 +96,9 @@ func checkRevision(ctx context.Context, c *jd.Client, reachable Check) Check {
 	return Check{idRevision, StatusOK, "diag.jd-revision.ok", detail}
 }
 
-// noLogin is risk R1: it is accepted and stays a warning for good. Acknowledging
-// it is up to the API layer.
+// noLogin is the standing warning about JDownloader's API: it has no login and
+// that cannot be changed from here, so the check stays a warning for good.
+// Acknowledging it is up to the API layer.
 func noLogin(address string) Check {
 	return Check{idNoLogin, StatusWarn, "diag.api-no-login.warn",
 		"the JDownloader API has no login: whatever reaches " + address + " controls JDownloader"}
@@ -121,10 +122,10 @@ func checkHost(ctx context.Context, base string, own []netip.Prefix) Check {
 }
 
 // CheckSubnet judges the address of JDownloader. It warns when the address lies
-// outside all own subnets (T-NET-03: it may be unreachable, and the path leaves
+// outside all own subnets (it may be unreachable, and the path leaves
 // this machine), and when it is in a private range on an own subnet that is not
 // an internal Docker network: then every device in that LAN reaches the API
-// (R1, T-NET-02). A private address outside all own subnets gets both hints.
+// (the no-login warning). A private address outside all own subnets gets both hints.
 func CheckSubnet(ip netip.Addr, own []netip.Prefix) Check {
 	ip = ip.Unmap()
 	if ip.IsLoopback() {

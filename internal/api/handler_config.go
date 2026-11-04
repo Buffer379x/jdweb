@@ -13,7 +13,7 @@ import (
 // maskValue stands in for the value of a secret setting.
 const maskValue = "••••••" // six bullets
 
-// secretKey matches the keys whose values are shown masked (Concept 9.4).
+// secretKey matches the keys whose values are shown masked.
 var secretKey = regexp.MustCompile(`(?i)password|apikey|secret|token`)
 
 // plainTypes are the setting types that cannot hold a text secret. Everything

@@ -1,4 +1,4 @@
-/* Tokens of Concept 11.3. Dark ("Nachtschicht") is the default, light is "Frachtpapier". */
+/* Design tokens. Dark ("Nachtschicht") is the default, light is "Frachtpapier". */
 :root {
   --sans: "Barlow", system-ui, sans-serif;
   --cond: "Barlow Condensed", "Arial Narrow", sans-serif;

@@ -7,11 +7,11 @@ import (
 	"time"
 )
 
-// contentSecurityPolicy is the policy of Concept 9.3, character for character.
+// contentSecurityPolicy is the policy of every response. It allows only the app's own files, no inline script or style.
 const contentSecurityPolicy = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; " +
 	"font-src 'self'; connect-src 'self'; manifest-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
 
-// securityHeaders puts the headers of Concept 9.3 on every response, errors
+// securityHeaders puts the security headers on every response, errors
 // and static files included. API answers are never cached unless a handler
 // says otherwise.
 func securityHeaders(next http.Handler) http.Handler {

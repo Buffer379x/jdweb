@@ -192,7 +192,7 @@ func TestLiveSelfHealing(t *testing.T) {
 		return st.Controller == "RUNNING" && st.Speed > 0 && st.Downloads.Running >= 1 && st.Toggles.LimitBytes == 20480
 	})
 
-	// JDownloader restarts while the link runs and a browser is open (Review Focus 1).
+	// JDownloader restarts while the link runs and a browser is open.
 	f.inbox.reset()
 	if err := c.RestartJD(ctx); err != nil && !jd.IsConnection(err) {
 		t.Fatal(err)

@@ -90,7 +90,7 @@ func (s *Server) handleExtractionCancel(w http.ResponseWriter, r *http.Request) 
 }
 
 // archiveSettingsDTO are the settings of an archive. finalPassword and
-// passwords are secrets (Concept 9.4): they show as the mask, secret says so,
+// passwords are secrets: they show as the mask, secret says so,
 // and POST /extraction/archives/{id}/reveal gives the real values.
 type archiveSettingsDTO struct {
 	ArchiveID                          string   `json:"archiveId"`

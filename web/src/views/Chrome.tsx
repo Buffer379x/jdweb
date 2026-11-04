@@ -100,7 +100,7 @@ export function Tabs() {
   );
 }
 
-/** The indicators for what waits for you: captchas and questions of JDownloader. Task 7 opens the dialogs. */
+/** The indicators for what waits for you: captchas and questions of JDownloader. */
 export function Waiting() {
   const s = status.value;
   if (!s) return null;

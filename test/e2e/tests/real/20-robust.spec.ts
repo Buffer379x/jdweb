@@ -6,7 +6,7 @@ test.beforeEach(async ({ api }) => {
   await api.wipe();
 });
 
-// Review Focus 2: an action on an entry that JDownloader has removed meanwhile.
+// An action on an entry that JDownloader has removed meanwhile.
 test("an action on an entry that is gone: clear message or quiet reload, no crash, the view catches up", async ({ page, api, watch }) => {
   await page.addInitScript(() => {
     // A view whose events arrive late: patches and structure events wait while "frozen", then come in order.
@@ -54,7 +54,7 @@ test("an action on an entry that is gone: clear message or quiet reload, no cras
   expect(toasts.join(" ")).not.toMatch(/undefined|\[object|jd_error|TypeError/);
 });
 
-// Review Focus 3: wrong addresses give different, clear hints.
+// Wrong addresses give different, clear hints.
 test("diagnostics: wrong address variants are told apart", async ({ page, api }) => {
   const right = "http://jdweb-test-jd:3128";
   test.setTimeout(180_000);
@@ -103,7 +103,7 @@ test("diagnostics: wrong address variants are told apart", async ({ page, api })
   }
 });
 
-// Review Focus 4, T-UI-08, T-SEC-08: hostile names stay text, the layout holds. JDownloader itself replaces
+// T-UI-08, T-SEC-08: hostile names stay text, the layout holds. JDownloader itself replaces
 // < and > in names, so the markup that can arrive is entity text, a long name, right-to-left text and emoji;
 // the address of a link (details panel) keeps its characters.
 test("hostile names: shown as the text JDownloader holds, long and right-to-left names do not break the layout", async ({ page, api, watch }) => {

@@ -1,4 +1,4 @@
-// The segment bar of a package (Concept 11.6): one segment per link, and from
+// The segment bar of a package: one segment per link, and from
 // 25 links on 24 segments that each stand for a range of links. An error in a
 // range colors the whole segment as an error.
 

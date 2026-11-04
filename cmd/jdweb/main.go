@@ -108,7 +108,7 @@ func checkDataDir(dir string) error {
 }
 
 // writableHint is the one-line message for a data directory that cannot be
-// written (Review Focus 5). Docker creates the folder of a bind mount as root.
+// written. Docker creates the folder of a bind mount as root.
 func writableHint(dir string, uid, gid int, err error) error {
 	return fmt.Errorf("the data directory %s is not writable (%v). Run `chown -R %d:%d <path of the folder on the host>`, "+
 		"or start the container as root (--user 0:0) so that JDWeb sets the permissions itself and then drops root", dir, rootCause(err), uid, gid)

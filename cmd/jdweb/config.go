@@ -13,7 +13,7 @@ import (
 	"github.com/Buffer379x/jdweb/internal/jd"
 )
 
-// Defaults of Concept 10.5, plus PUID and PGID of the Unraid convention.
+// Defaults of the settings, plus PUID and PGID of the Unraid convention.
 const (
 	defaultJDURL   = "http://jdownloader:3128"
 	defaultListen  = ":7468"
@@ -34,7 +34,7 @@ type config struct {
 	PUID, PGID     int
 }
 
-// loadConfig reads the variables of Concept 10.5. Every error names the
+// loadConfig reads the JDWEB_* variables. Every error names the
 // variable and what is wrong with it.
 func loadConfig(getenv func(string) string) (config, error) {
 	c := config{

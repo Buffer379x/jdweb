@@ -53,7 +53,7 @@ type Config struct {
 	ClientOptions []jd.Option
 }
 
-// DefaultConfig returns the timing of Concept 5.3, 5.5 and 10.8.
+// DefaultConfig returns the timing of the sync engine (poll, safety net, backoff).
 func DefaultConfig() Config {
 	return Config{
 		PatchInterval:  500 * time.Millisecond,

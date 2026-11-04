@@ -87,7 +87,7 @@ func TestCFG01_General(t *testing.T) {
 	}
 }
 
-// LinkgrabberAutoStartEnabled has a switch of its own in the UI (Task 9 decision 1).
+// LinkgrabberAutoStartEnabled has a switch of its own in the UI.
 func TestCFG_AutoStartKey(t *testing.T) {
 	cleanJD(t)
 	a := shared(t)

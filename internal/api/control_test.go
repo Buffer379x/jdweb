@@ -200,7 +200,7 @@ func TestSystemInfo(t *testing.T) {
 	}
 }
 
-// Review Focus 1 and 3: the messages differ by cause and say what to do.
+// JDownloader down and a wrong address: the messages differ by cause and say what to do.
 func TestJDownloaderFailuresHaveDistinctMessages(t *testing.T) {
 	e := newEnv(t)
 	e.seed()

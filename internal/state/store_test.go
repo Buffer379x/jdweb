@@ -947,7 +947,7 @@ func heap() uint64 {
 	return m.HeapAlloc
 }
 
-// The whole app has to stay below 150 MB with 10,000 links (Concept 10.8). The
+// The whole app has to stay below 150 MB with 10,000 links. The
 // mirror and a snapshot with pending patches are a small part of that.
 func TestMemoryWith10000Links(t *testing.T) {
 	before := heap()

@@ -42,7 +42,7 @@ func pingError(err error, wasUp bool) error {
 }
 
 // classify turns the end of a session into the state the browsers see
-// (Review Focus 3). Only a failed ping says another service answers. The detail
+// (a wrong address, another service, JDownloader down). Only a failed ping says another service answers. The detail
 // never holds response text of JDownloader: stacktraces stay in the log.
 func classify(err error, wasUp bool, url string) (state.Connection, string) {
 	switch {

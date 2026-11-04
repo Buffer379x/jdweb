@@ -193,7 +193,7 @@ var named = map[string]func(*delta){
 }
 
 // notMirrored are fields JDownloader announces that the mirror has no use for.
-// statusIconKey is a hash without stable meaning (Concept 3.3).
+// statusIconKey is a hash without stable meaning.
 var notMirrored = map[string]bool{"statusIconKey": true, "advancedStatus": true, "jobUUID": true}
 
 func (d *delta) password() *string {

@@ -142,7 +142,7 @@ func TestGETRoutesOnlyRead(t *testing.T) {
 	}
 }
 
-// Concept 9.3: headers on every answer, errors and files included.
+// Security headers on every answer, errors and files included.
 func TestSecurityHeadersEverywhere(t *testing.T) {
 	e := newEnv(t, func(o *envOptions) {
 		o.static = fstest.MapFS{"index.html": {Data: []byte("<!doctype html>app")}}

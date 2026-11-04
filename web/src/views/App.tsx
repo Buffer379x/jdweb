@@ -36,7 +36,7 @@ async function ctl(action: string): Promise<void> {
   }
 }
 
-/** Keys of Concept 11.7 that work everywhere. The keys of the list are on the list. */
+/** Keyboard shortcuts that work everywhere (the help overlay lists them). The keys of the list are on the list. */
 function onGlobalKey(e: KeyboardEvent): void {
   if (e.defaultPrevented || dialogStack.value.length || inField(e.target)) return;
   if (e.ctrlKey || e.metaKey || e.altKey) return;

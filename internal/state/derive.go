@@ -6,7 +6,7 @@ import (
 	"github.com/Buffer379x/jdweb/internal/jd"
 )
 
-// deriveLinkState is the first match of the list in docs/api.md (Concept 11.6).
+// deriveLinkState is the first match of the list in docs/api.md.
 // failed is a final state of JDownloader that is not a success (an entry of
 // advancedStatus.FinalLinkState); the text of status is never looked at.
 func deriveLinkState(l DlLink) LinkState {

@@ -141,7 +141,7 @@ func runWithEnv(t *testing.T, key, val string, f func() int) int {
 	return f()
 }
 
-// Review Focus 5: an unwritable data directory is one clear line naming chown.
+// An unwritable data directory is one clear line naming chown.
 func TestUnwritableDataDirNamesTheChownCommand(t *testing.T) {
 	if os.Getuid() == 0 {
 		t.Skip("root can write anywhere")

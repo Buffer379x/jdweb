@@ -324,7 +324,7 @@ func (s *session) reloadAndAnnounce(ctx context.Context, list state.List) error 
 }
 
 // safetyNet catches what events missed: a subscription JDownloader forgot, and
-// structure changes nobody announced (Concept 5.3, step 7).
+// structure changes nobody announced.
 func (s *session) safetyNet(ctx context.Context) error {
 	st, err := s.c.SubscriptionStatus(ctx, s.sub)
 	switch {

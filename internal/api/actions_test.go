@@ -359,7 +359,7 @@ func TestCleanupAllNeedsNoIDs(t *testing.T) {
 	}
 }
 
-// Review Focus 2: an action on an entry JDownloader dropped answers with
+// An action on an entry JDownloader dropped answers with
 // success, and the list is reloaded so the browser converges.
 func TestActionOnVanishedEntryRefreshesTheList(t *testing.T) {
 	e := newEnv(t, withRun, withFastSync)
