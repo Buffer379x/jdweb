@@ -205,6 +205,7 @@ export function Banner() {
         ) : (
           <>
             <span dir="auto">{s.connectionDetail || (mis ? t("banner.misconfiguredHint") : t("banner.offlineHint"))}</span>
+            {!mis && s.connectionDetail ? <span> {t("banner.offlineHint")}</span> : null}
             {mis ? <span class="banner-more"> {t("banner.settingsHint")}</span> : null}{" "}
             {mis || s.connection === "offline" ? (
               <a class="banner-link" href="/settings/diagnostics" onClick={(e) => { e.preventDefault(); navigateSettings("diagnostics"); }}>{t("banner.toDiagnostics")}</a>

@@ -66,6 +66,7 @@ const CTL = (page: import("@playwright/test").Page) => page.getByRole("group", {
 
 test("cleanup: files stay by default, the file mode asks and names count and consequence", async ({ page, api }) => {
   const dir = "/output/jdweb-e2e/clean";
+  docker("exec", JD_CONTAINER, "sh", "-c", `rm -rf ${dir}`); // files of an earlier run stay on purpose (links-only cleanup)
   await api.stage("clean", [fx("/e2e-clean-1.bin?size=2000"), fx("/e2e-clean-2.bin?size=2000")], { dir });
   await open(page, "/downloads");
   await api.post("/controller/start");
@@ -104,6 +105,7 @@ test("cleanup: files stay by default, the file mode asks and names count and con
   await dlg.getByRole("button", { name: "Clean up" }).click();
   await expect(page.getByRole("row", { name: /jdweb-e2e-clean2/ })).toHaveCount(0);
   expect(files()).toBe("1");
+  docker("exec", JD_CONTAINER, "sh", "-c", `rm -rf ${dir}`);
 });
 
 test("drag and drop: locked while a filter is on, works without", async ({ page, api }) => {

@@ -1,6 +1,7 @@
 import { writeFileSync } from "node:fs";
 import { expect, test } from "@playwright/test";
 import { Api } from "../../support/api.ts";
+import { axe } from "../../support/a11y.ts";
 import { AUTOSTART } from "../../support/env.ts";
 import { APP_CONTAINER, PASSWORD, USER, setupToken } from "../../support/env.ts";
 
@@ -9,6 +10,7 @@ test("setup with the token from the log, then sign in", async ({ page, baseURL }
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "First setup" })).toBeVisible();
   // A wrong token is refused with a clear text.
+  await axe(page, "setup");
   await page.getByLabel("Setup token").fill("not-the-token");
   await page.getByLabel("Username").fill(USER);
   await page.locator("input[type=password]").first().fill(PASSWORD);
@@ -26,6 +28,7 @@ test("setup with the token from the log, then sign in", async ({ page, baseURL }
   await page.getByRole("button", { name: "Menu" }).click();
   await page.getByRole("menuitem", { name: "Sign out (e2e)" }).click();
   await expect(page.getByRole("heading", { name: "Sign in" })).toBeVisible();
+  await axe(page, "sign in");
   await page.getByLabel("Username").fill(USER);
   await page.getByLabel("Password").fill("wrong-password-123");
   await page.getByRole("button", { name: "Sign in" }).click();

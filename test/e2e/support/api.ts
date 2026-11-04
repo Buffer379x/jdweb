@@ -41,22 +41,26 @@ export class Api {
     await this.post("/linkgrabber/add", body);
   }
 
-  /** Add, wait until JDownloader has them with a known availability, move to the downloads. Returns the lists of the downloads. */
-  async stage(pkg: string, urls: string[], opts: { dir?: string; raw?: boolean } = {}): Promise<Lists> {
-    const name = opts.raw ? pkg : PREFIX + pkg;
+  /**
+   * Add, wait until JDownloader has them with a known availability, move to the downloads. Returns the name
+   * JDownloader gave the package (it replaces some characters), found by what is new, not by the name asked for.
+   */
+  async stage(pkg: string, urls: string[], opts: { dir?: string; raw?: boolean } = {}): Promise<string> {
+    const known = new Set((await this.grabber()).packages.map((p) => p.id));
     await this.add(pkg, urls, opts);
     let id = "";
+    let name = "";
     await expect.poll(async () => {
       const g = await this.grabber();
-      const p = g.packages.find((x) => x.name === name);
+      const p = g.packages.find((x) => !known.has(x.id));
       const links = g.links.filter((l) => l.packageId === p?.id);
       id = p?.id ?? "";
+      name = p?.name ?? "";
       return links.length === urls.length && links.every((l) => l.availability !== "UNKNOWN" && l.availability !== "TEMP_UNKNOWN");
-    }, { timeout: 60_000, message: `package ${name} in the linkgrabber` }).toBe(true);
+    }, { timeout: 60_000, message: `package ${pkg} in the linkgrabber` }).toBe(true);
     await this.post("/linkgrabber/actions/to-downloads", { packageIds: [id], linkIds: [], start: false });
-    let l: Lists = { packages: [], links: [] };
-    await expect.poll(async () => (l = await this.downloads()).packages.some((p) => p.name === name), { timeout: 30_000, message: `package ${name} in the downloads` }).toBe(true);
-    return l;
+    await expect.poll(async () => (await this.downloads()).packages.some((p) => p.name === name), { timeout: 30_000, message: `package ${name} in the downloads` }).toBe(true);
+    return name;
   }
 
   async waitGrabber(count: number): Promise<Lists> {
@@ -85,9 +89,11 @@ export class Api {
     }
   }
 
-  /** Stops, answers open dialogs and removes everything, files included. */
+  /**
+   * Stops and removes everything, files included. The guard ran once at the start of the suite (00-setup):
+   * what is in JDownloader now was put there by these tests, also what the UI named itself.
+   */
   async wipe(): Promise<void> {
-    await this.assertTestInstance();
     await this.limit(null);
     await this.post("/controller/stop", {}, [200, 204]).catch(() => {});
     await this.post("/linkgrabber/actions/abort", {}).catch(() => {});
