@@ -93,6 +93,7 @@ type env struct {
 	logs   *logBuffer
 	token  string // the session cookie value
 	http   *http.Client
+	start  func() // starts the engine with withRun; nil without
 }
 
 func newEnv(t *testing.T, opts ...func(*envOptions)) *env {
@@ -127,10 +128,14 @@ func newEnv(t *testing.T, opts ...func(*envOptions)) *env {
 	}
 	e.engine = jdsync.New(client, e.mirror, e.hub, cfg)
 	if o.run {
-		ctx, cancel := context.WithCancel(context.Background())
-		done := make(chan struct{})
-		go func() { _ = e.engine.Run(ctx); close(done) }()
-		t.Cleanup(func() { cancel(); <-done })
+		// Started by waitConnected, after the test has put its data into the fake: the fake's
+		// mutators send no event, so data added after the first load never reaches the mirror.
+		e.start = sync.OnceFunc(func() {
+			ctx, cancel := context.WithCancel(context.Background())
+			done := make(chan struct{})
+			go func() { _ = e.engine.Run(ctx); close(done) }()
+			t.Cleanup(func() { cancel(); <-done })
+		})
 	}
 
 	e.srv = New(Options{
@@ -299,6 +304,9 @@ func eventually(t testing.TB, what string, ok func() bool) {
 
 func (e *env) waitConnected() {
 	e.t.Helper()
+	if e.start != nil {
+		e.start()
+	}
 	eventually(e.t, "the engine is connected", func() bool { return e.engine.Status().Connection == state.ConnConnected })
 }
 
