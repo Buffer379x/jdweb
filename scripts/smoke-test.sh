@@ -115,7 +115,7 @@ done
 
 echo "== no session: 401; setup with the token from the log; login"
 [ "$(http_code "http://127.0.0.1:$PORT/api/v1/status")" = 401 ] || fail "/api/v1/status without a session is not 401"
-[ "$(curl -s "http://127.0.0.1:$PORT/api/v1/setup/status")" = '{"required":true}' ] || fail "setup is not required on a fresh data folder"
+[ "$(curl -s "http://127.0.0.1:$PORT/api/v1/setup/status")" = '{"required":true,"reset":false}' ] || fail "setup is not required on a fresh data folder"
 [ "$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' -H "Origin: http://127.0.0.1:$PORT" --data '{}' "http://127.0.0.1:$PORT/api/v1/login")" = 403 ] \
   || fail "login without X-JDWeb-Request is not 403"
 [ "$(post "$PORT" /api/v1/setup '{"token":"wrong","username":"smoke","password":"smoke-test-password-1"}')" = 400 ] || fail "wrong setup token is not 400"
@@ -146,7 +146,7 @@ LOG=$(docker logs "$NAME" 2>&1)
 [[ "$LOG" == *'"shutting down"'* ]] || fail "no shutdown message in the log"
 docker start "$NAME" >/dev/null
 wait_healthy "$NAME" 40 || fail "not healthy after restart"
-[ "$(curl -s "http://127.0.0.1:$PORT/api/v1/setup/status")" = '{"required":false}' ] || fail "setup is open again after restart"
+[ "$(curl -s "http://127.0.0.1:$PORT/api/v1/setup/status")" = '{"required":false,"reset":false}' ] || fail "setup is open again after restart"
 [ "$(post "$PORT" /api/v1/login "$LOGIN_BODY")" = 204 ] || fail "login after restart failed"
 docker rm -f "$NAME" >/dev/null
 
@@ -186,7 +186,7 @@ docker exec "$NAME-root" /jdweb reset-password >/dev/null 2>&1 || fail "reset-pa
 BAD=$(owner_of "$MOUNT" /d /d/jdweb.db /d/jdweb.db-wal /d/jdweb.db-shm | grep -v ' 99:100$' || true)
 [ -z "$BAD" ] || fail "files are not owned by 99:100: $BAD"
 [ "$(curl -fsS "http://127.0.0.1:$PORT2/healthz")" = ok ] || fail "root start: /healthz is not ok"
-[ "$(curl -s "http://127.0.0.1:$PORT2/api/v1/setup/status")" = '{"required":true}' ] || fail "reset token does not reopen the setup page"
+[ "$(curl -s "http://127.0.0.1:$PORT2/api/v1/setup/status")" = '{"required":true,"reset":true}' ] || fail "reset token does not reopen the setup page as a reset"
 START=$(date +%s)
 docker stop -t 10 "$NAME-root" >/dev/null
 [ $(( $(date +%s) - START )) -lt 6 ] || fail "root start: slow stop"
