@@ -2,6 +2,7 @@
 // menu, the Actions menu and the action bar on small screens (docs/api.md,
 // table "Actions").
 
+import { canChangeDirectory } from "../lib/targets.ts";
 import { post, get, isApiError } from "../api/client.ts";
 import { PRIORITIES, type CleanupAction, type CleanupMode, type CleanupSelection, type ListName, type LinkVariant } from "../api/types.ts";
 import { ConfirmDialog, PromptDialog } from "../components/Dialog.tsx";
@@ -280,7 +281,7 @@ const COMMON_MID: Def[] = [
   { id: "disable", label: "act.disable", enabled: any, run: (tg) => void runAction(tg.list, "disable", ids(tg), tg.store) },
   { id: "priority", label: "act.priority", enabled: any, children: priorityItems, separatorBefore: true },
   { id: "rename", label: "act.rename", hint: "F2", enabled: one, run: (tg) => renameSelected(tg.store) },
-  { id: "directory", label: "act.directory", enabled: any, run: (tg) => changeDirectory(tg.store) },
+  { id: "directory", label: "act.directory", enabled: canChangeDirectory, run: (tg) => changeDirectory(tg.store) },
   { id: "password", label: "act.password", enabled: any, run: (tg) => changePassword(tg.store) },
   { id: "newPackage", label: "act.newPackage", enabled: (tg) => tg.linkIds.length > 0 || tg.packageIds.length > 0, run: (tg) => newPackage(tg.store) },
   { id: "move", label: "act.move", enabled: (tg) => canMove(tg.store, tg), children: moveItems },
