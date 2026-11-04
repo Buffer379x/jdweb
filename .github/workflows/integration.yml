@@ -1,6 +1,7 @@
 # Integration tests against a real JDownloader (jlesage/jdownloader-2:latest):
 # every package of the tests is named "jdweb-it-...", and the stack is thrown
 # away afterwards. Weekly, to see when a new JDownloader changes its API.
+# The browser tests (Playwright, test/e2e, packages "jdweb-e2e-...") run by hand only.
 name: Integration
 
 on:
@@ -10,6 +11,10 @@ on:
     inputs:
       big:
         description: "Also run the 10,000 links case (T-LG-01), takes long"
+        type: boolean
+        default: false
+      e2e:
+        description: "Also run the browser tests (Playwright) against the built image, takes about ten minutes"
         type: boolean
         default: false
 
@@ -51,6 +56,40 @@ jobs:
       - name: Log of the JDownloader container
         if: failure()
         run: docker logs --tail 200 jdweb-test-jd 2>&1 | tail -n 200
+      - name: Tear the stack down
+        if: always()
+        run: bash scripts/teststack.sh down
+
+  e2e:
+    name: Browser tests (by hand only)
+    if: github.event_name == 'workflow_dispatch' && inputs.e2e
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24.22.1"
+      - name: Start the test stack
+        run: bash scripts/teststack.sh up
+      - name: Install the tests and Chromium
+        working-directory: test/e2e
+        run: |
+          npm install --global pnpm@10.34.9
+          pnpm install --frozen-lockfile
+          pnpm exec playwright install --with-deps chromium
+      - name: Browser tests
+        run: bash scripts/e2e.sh
+      - name: Results of failed tests
+        if: failure()
+        uses: actions/upload-artifact@v5
+        with:
+          name: e2e-test-results
+          path: test/e2e/test-results
+          retention-days: 7
       - name: Tear the stack down
         if: always()
         run: bash scripts/teststack.sh down
