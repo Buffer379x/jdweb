@@ -22,12 +22,13 @@ JDWeb talks to the API of your own JDownloader over your own network and gives y
 - **Extraction, hoster accounts, settings**, including all advanced settings, plugins and extensions.
 - **Live** through server-sent events. JDownloader restarts? The page shows it, heals itself and catches up.
 - **Safe by default** (JDWeb's own login and page; for JDownloader's API see [Security](#security-read-this)): account with Argon2id password, optional two-factor (TOTP), setup only with a one-time token, CSRF checks, strict CSP, no third-party resources, fonts inside the image.
-- **Small**: image about 15 MB, about 6 MB of RAM at idle. Dark and light mode, phone layout, German and English by browser language.
+- **Small**: image about 15 MB, about 15 MB of RAM at idle and about 30 MB with 10,000 links (measured with `docker stats`). Dark and light mode, phone layout, German and English by browser language.
 
 | | |
 |---|---|
 | ![Downloads, dark](docs/screenshots/downloads-dark.png) | ![Downloads, light](docs/screenshots/downloads-light.png) |
 | ![Link grabber, dark](docs/screenshots/linkgrabber-dark.png) | ![Downloads on a phone](docs/screenshots/downloads-mobile-dark.png) |
+| ![Settings, dark](docs/screenshots/settings-dark.png) | ![A captcha waiting, dark](docs/screenshots/captcha-dark.png) |
 
 The screenshots show sample data only (the interface follows the browser language, here German).
 
