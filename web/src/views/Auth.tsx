@@ -2,7 +2,7 @@ import { useState } from "preact/hooks";
 import { get, isApiError, post } from "../api/client.ts";
 import type { Session } from "../api/types.ts";
 import { t } from "../i18n/index.ts";
-import { checkSession, session, setupRequired } from "../store/app.ts";
+import { checkSession, pushToast, session, setupRequired, setupReset } from "../store/app.ts";
 import { errorText } from "../store/errors.ts";
 import { UserMenuLite } from "./Lite.tsx";
 
@@ -66,7 +66,6 @@ export function SetupView() {
         <label class="field">
           <span class="field-label">{t("login.username")}</span>
           <input class="input" value={user} autocomplete="username" onInput={(e) => setUser(e.currentTarget.value)} />
-          <span class="field-hint">{t("setup.userHint")}</span>
         </label>
         <label class="field">
           <span class="field-label">{t("login.password")}</span>
@@ -80,6 +79,60 @@ export function SetupView() {
         </label>
         <div class="form-error" role="alert">{err}</div>
         <button type="submit" class="btn pri wide" disabled={!can}>{t("setup.submit")}</button>
+      </form>
+    </Frame>
+  );
+}
+
+/**
+ * The setup page after `jdweb reset-password`: the account exists and keeps its name, so there is no name
+ * field. The password is set and the owner signs in with the name they know.
+ */
+export function ResetView() {
+  const [token, setToken] = useState("");
+  const [pw, setPw] = useState("");
+  const [pw2, setPw2] = useState("");
+  const [err, setErr] = useState("");
+  const [busy, setBusy] = useState(false);
+  const short = pw.length > 0 && pw.length < MIN_PASSWORD;
+  const mismatch = pw2.length > 0 && pw !== pw2;
+  const can = token.trim() !== "" && pw.length >= MIN_PASSWORD && pw === pw2 && !busy;
+  const submit = async (e: Event) => {
+    e.preventDefault();
+    if (!can) return;
+    setBusy(true);
+    setErr("");
+    try {
+      await post("/setup", { token: token.trim(), username: "", password: pw }, { ownUnauthorized: true });
+      setupRequired.value = false;
+      setupReset.value = false;
+      pushToast("info", t("reset.done"));
+    } catch (x) {
+      setErr(isApiError(x) && x.code === "bad_request" ? t("reset.badToken") : errorText(x));
+      setBusy(false);
+      if (isApiError(x) && x.code === "conflict") void checkSession();
+    }
+  };
+  return (
+    <Frame title={t("reset.title")} intro={t("reset.intro")}>
+      <form onSubmit={submit} class="auth-form">
+        <label class="field">
+          <span class="field-label">{t("reset.token")}</span>
+          <input class="input mono" value={token} data-autofocus autofocus autocomplete="off" spellcheck={false} onInput={(e) => setToken(e.currentTarget.value)} />
+          <span class="field-hint">{t("reset.tokenHint")}</span>
+        </label>
+        <label class="field">
+          <span class="field-label">{t("reset.password")}</span>
+          <input class="input" type="password" value={pw} autocomplete="new-password" aria-invalid={short} onInput={(e) => setPw(e.currentTarget.value)} />
+          <span class={`field-hint${short ? " bad" : ""}`}>{t("setup.passwordHint", { n: MIN_PASSWORD })}</span>
+        </label>
+        <label class="field">
+          <span class="field-label">{t("setup.repeat")}</span>
+          <input class="input" type="password" value={pw2} autocomplete="new-password" aria-invalid={mismatch} onInput={(e) => setPw2(e.currentTarget.value)} />
+          {mismatch ? <span class="field-hint bad">{t("setup.mismatch")}</span> : null}
+        </label>
+        <div class="form-error" role="alert">{err}</div>
+        <button type="submit" class="btn pri wide" disabled={!can}>{t("reset.submit")}</button>
       </form>
     </Frame>
   );

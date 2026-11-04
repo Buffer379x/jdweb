@@ -152,3 +152,14 @@ test("filter and sort look only at the fields that matter, progress does not reb
   s.patch({ list: "downloads", links: { "11": { name: "again" } }, packages: {} });
   assert.equal(s.viewVer.value, v2, "no filter and no sort: the order never depends on a patch");
 });
+
+test("the setup status tells a password reset from the first setup", async () => {
+  const app = await import("../src/store/app.ts");
+  stubFetch({ "/setup/status": () => json({ required: true, reset: true }) });
+  await app.checkSession();
+  assert.equal(app.setupRequired.value, true);
+  assert.equal(app.setupReset.value, true);
+  stubFetch({ "/setup/status": () => json({ required: true }) });
+  await app.checkSession();
+  assert.equal(app.setupReset.value, false);
+});

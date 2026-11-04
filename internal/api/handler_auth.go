@@ -8,12 +8,12 @@ import (
 )
 
 func (s *Server) handleSetupStatus(w http.ResponseWriter, r *http.Request) {
-	required, err := s.auth.SetupRequired(r.Context())
+	required, reset, err := s.auth.SetupState(r.Context())
 	if err != nil {
 		s.fail(w, r, err)
 		return
 	}
-	s.writeJSON(w, r, http.StatusOK, map[string]bool{"required": required})
+	s.writeJSON(w, r, http.StatusOK, map[string]bool{"required": required, "reset": reset})
 }
 
 func (s *Server) handleSetup(w http.ResponseWriter, r *http.Request) {

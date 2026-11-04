@@ -245,3 +245,31 @@ func TestPanicInAHandlerIsA500AndLogged(t *testing.T) {
 		t.Error("the panic was not logged")
 	}
 }
+
+// The setup page is also the page of a password reset. The status says which of
+// the two it is, so that the page does not ask a returning owner for a name.
+func TestSetupStatusSaysWhetherItIsAReset(t *testing.T) {
+	e := newEnv(t, withDebugLog, withoutAccount)
+	if err := e.auth.InitSetup(ctxBg); err != nil {
+		t.Fatal(err)
+	}
+	var st struct{ Required, Reset bool }
+	e.get("/api/v1/setup/status", noSession).json(t, &st)
+	if !st.Required || st.Reset {
+		t.Fatalf("first start: %+v, want required and no reset", st)
+	}
+	const pw = "a-long-enough-password-1"
+	e.expect(e.post("/api/v1/setup", map[string]any{"token": e.setupToken(), "username": "owner", "password": pw}, noSession), 204)
+	st = struct{ Required, Reset bool }{}
+	e.get("/api/v1/setup/status", noSession).json(t, &st)
+	if st.Required || st.Reset {
+		t.Fatalf("set up: %+v, want neither", st)
+	}
+	if _, err := e.auth.ResetToken(ctxBg); err != nil {
+		t.Fatal(err)
+	}
+	e.get("/api/v1/setup/status", noSession).json(t, &st)
+	if !st.Required || !st.Reset {
+		t.Fatalf("after reset-password: %+v, want required and reset", st)
+	}
+}

@@ -4,12 +4,12 @@ import { Announcer } from "../components/Announcer.tsx";
 import { Toasts } from "../components/Toasts.tsx";
 import { formatEta, formatPercent, formatSpeed, percent } from "../lib/format.ts";
 import { lang, t } from "../i18n/index.ts";
-import { captchaDialogOpen, checkSession, extractionOpen, helpOpen, jdRestarting, live, prefs, pushToast, questionDialogOpen, route, session, setupRequired, status, navigate, pushToastForError } from "../store/app.ts";
+import { captchaDialogOpen, checkSession, extractionOpen, helpOpen, jdRestarting, live, prefs, pushToast, questionDialogOpen, route, session, setupRequired, setupReset, status, navigate, pushToastForError } from "../store/app.ts";
 import { dialogStack } from "../store/dialogs.ts";
 import { stores } from "../store/stores.ts";
 import { ensureList, startLive } from "../store/live.ts";
 import { post } from "../api/client.ts";
-import { LoginView, SetupView } from "./Auth.tsx";
+import { LoginView, ResetView, SetupView } from "./Auth.tsx";
 import { ActionBar, Banner, ControlDesk, Footbar, SpeedBlock, Tabs, Toolbar, UserMenu, Waiting } from "./Chrome.tsx";
 import { ListView } from "./ListView.tsx";
 import { SettingsView } from "./settings/Layout.tsx";
@@ -154,7 +154,7 @@ export function App() {
   }, [!!sess]);
   let body;
   if (sess === undefined || (sess === null && setupRequired.value === undefined)) body = <div class="boot" role="status">{t("boot.loading")}</div>;
-  else if (sess === null) body = setupRequired.value ? <SetupView /> : <LoginView />;
+  else if (sess === null) body = setupRequired.value ? (setupReset.value ? <ResetView /> : <SetupView />) : <LoginView />;
   else body = <Shell />;
   return (
     <>

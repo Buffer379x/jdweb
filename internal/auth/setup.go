@@ -77,6 +77,20 @@ func (s *Service) SetupRequired(ctx context.Context) (bool, error) {
 	return ok, err
 }
 
+// SetupState says whether POST /setup can currently succeed, and whether that
+// would be a password reset (an account exists) rather than the first setup.
+func (s *Service) SetupState(ctx context.Context) (required, reset bool, err error) {
+	n, err := s.db.UserCount(ctx)
+	if err != nil {
+		return false, false, err
+	}
+	if n == 0 {
+		return true, false, nil
+	}
+	_, ok, err := s.activeReset(ctx)
+	return ok, ok, err
+}
+
 // Setup creates the account with the setup token, or, after `reset-password`,
 // replaces the password of the existing account with the reset token. Both
 // tokens work once.

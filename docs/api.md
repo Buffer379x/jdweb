@@ -35,7 +35,7 @@ All paths are below `/api/v1`, except `/healthz`.
 
 | Route | Body | Response |
 |---|---|---|
-| `GET /setup/status` | | `{required}` |
+| `GET /setup/status` | | `{required,reset}`: `required` is true before the first setup and while a token from `reset-password` is valid; `reset` is true in the second case, an account exists and `POST /setup` takes the reset token and ignores `username` |
 | `POST /setup` | `{token,username,password}` | 204 |
 | `POST /login` | `{username,password,totp?}` | 204 and the session cookie |
 | `GET /healthz` | | `ok` (text) |

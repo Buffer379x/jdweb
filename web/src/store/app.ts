@@ -70,6 +70,8 @@ window.addEventListener("popstate", syncFromLocation);
 /** undefined while it is being asked, null when nobody is signed in. */
 export const session = signal<Session | null | undefined>(undefined);
 export const setupRequired = signal<boolean | undefined>(undefined);
+/** The setup page is the page of a password reset: an account exists and `reset-password` was run. */
+export const setupReset = signal(false);
 
 onUnauthorized.fn = () => {
   if (session.value) {
@@ -84,8 +86,9 @@ export const stopHook: { fn: () => void } = { fn: () => {} };
 
 export async function checkSession(): Promise<void> {
   try {
-    const st = await get<{ required: boolean }>("/setup/status");
+    const st = await get<{ required: boolean; reset?: boolean }>("/setup/status");
     setupRequired.value = st.required;
+    setupReset.value = st.required && st.reset === true;
     if (st.required) {
       session.value = null;
       return;
