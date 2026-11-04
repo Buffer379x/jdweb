@@ -20,14 +20,14 @@ All paths are below `/api/v1`, except `/healthz`.
   | `selection_gone` | 409 | A cleanup of a selection (`SELECTED`) found none of its ids in JDownloader any more. Nothing was sent. |
   | `rate_limited` | 429 | Too many attempts. The header `Retry-After` has the seconds to wait. |
   | `jd_offline` | 503 | JDownloader does not answer, or no address is set. |
-  | `jd_error` | 502, 404 | JDownloader answered with an error, or another service answers at the address. 404 when a captcha, a dialog or an extraction is gone (solved, answered or finished meanwhile). Actions on links and packages that are gone are no error, see Actions. |
+  | `jd_error` | 502, 404, 409 | JDownloader answered with an error, or another service answers at the address. 404 when a captcha, a dialog or an extraction is gone (solved, answered or finished meanwhile). 409 when JDownloader reported success but did not keep the change (the final archive password cannot be cleared). Actions on links and packages that are gone are no error, see Actions. |
   | `internal` | 500, 503 | Bug, full disk, a database call that took too long (500), or a request cancelled by the browser (503). Details are in the log only. |
 
 - State-changing requests (every method but GET and HEAD, public routes included) need the header `X-JDWeb-Request: 1` and an `Origin` that names the host the request went to, otherwise the response is 403. The check comes after the session check: without a session the answer is 401.
 - No GET route changes anything. GET routes only read.
 - IDs are always strings of digits in JSON, in requests and responses. A number, a negative number or zero is a 400. Where a request names the place "behind" which something goes (`afterLinkId`, `afterPackageId`), an empty string or `"-1"` means the top of the list.
 - A request that succeeds and has nothing to say answers `204 No Content`. System actions and `POST /update/apply` answer `202`.
-- JSON bodies are limited to 1 MiB, `/linkgrabber/add` to 8 MiB, `/linkgrabber/container` to 64 MiB, `PUT /prefs` to 64 KiB. These two routes also get more time to upload and to answer than the 30 s and 60 s of other routes.
+- JSON bodies are limited to 1 MiB, `/linkgrabber/add` to 8 MiB, `/linkgrabber/container` to 64 MiB, `PUT /prefs` to 64 KiB. The two routes with a limit above 1 MiB (`/linkgrabber/add` and `/linkgrabber/container`) also get more time to upload (two minutes) and to answer (another two) than the 30 s and 60 s of other routes.
 - Unknown fields in request bodies are ignored.
 - The server answers every request with `Content-Security-Policy`, `X-Content-Type-Options: nosniff` and `Referrer-Policy: no-referrer`. API answers carry `Cache-Control: no-store`, except icons.
 
@@ -182,7 +182,7 @@ Additional routes:
 ## Captchas
 
 - `GET /captchas` returns a list of `{id,hoster,type,kind,explain?,timeout,created,remaining}`, without pictures. `timeout` and `remaining` are milliseconds according to the JDownloader reference; this is unconfirmed, because no image captcha could be triggered against a real JDownloader so far.
-- `GET /captchas/{id}` returns `{id,hoster,type,kind:"image|interactive",imageDataUrl?,explain?,timeout,created,remaining}`. `imageDataUrl` is a `data:image/...` URL and only present for `image`. `kind` is `interactive` for challenges the browser cannot show as a picture (reCAPTCHA, hCaptcha, click and similar) and when JDownloader has no usable picture. Interactive captchas can be explained and skipped, not solved here. The classification by type name is a guess until real jobs are seen (Concept R7).
+- `GET /captchas/{id}` returns `{id,hoster,type,kind:"image|interactive",imageDataUrl?,explain?,timeout,created,remaining}`. `imageDataUrl` is a `data:image/...` URL and only present for `image`. `kind` is `interactive` for challenges the browser cannot show as a picture (reCAPTCHA, hCaptcha, click and similar) and when JDownloader has no usable picture. Interactive captchas can be explained and skipped, not solved here. The classification by type name is a guess from JDownloader's sources, not yet checked against real jobs: a type that is not in the list shows as an image captcha.
 - `POST /captchas/{id}/solve` with `{result}`: 204.
 - `POST /captchas/{id}/skip` with `{type}`: 204. `type` is one of `SINGLE`, `BLOCK_HOSTER`, `BLOCK_ALL_CAPTCHAS`, `BLOCK_PACKAGE`, `REFRESH`, `STOP_CURRENT_ACTION`, `TIMEOUT`.
 
@@ -220,7 +220,7 @@ A captcha that was solved or timed out meanwhile is `404 jd_error` with a messag
 
 - `GET /config?q=&interface=&extensions=` returns `{entries:[{interface,storage,key,type,abstractType,docs,value,defaultValue,enumLabel?,enumOptions?,secret}]}`. `q` is a regular expression that JDownloader matches against the whole of interface and key, so a word needs wildcards (`.*Word.*`); the web interface filters in the browser instead (at most 256 characters), `interface` restricts to one config interface, `extensions=true` includes the extensions. The answer is gzip-compressed when accepted.
 - Entries of extensions (`extensions=true`) have a `storage` such as `cfg/org.jdownloader.extensions.extraction.ExtractionExtension`; reads, writes, resets and reveals must name it. The global archive password list is `ExtractionConfig.PasswordList` there; JDownloader adds every password that worked to it.
-- Masking: an entry whose key matches `password|apikey|secret|token` (case-insensitive) and whose `abstractType` is `STRING` or `STRING_LIST` has `secret:true`, and `value` and `defaultValue` show `"••••••"` (six bullets, U+2022) for a text and `["••••••"]` for a list. An empty or null value stays as it is, so the browser can tell "not set" from "set". Numbers and switches are never masked, whatever the key.
+- Masking: an entry whose key matches `password|apikey|secret|token` (case-insensitive) and whose `abstractType` is not one of the plain types (`BOOLEAN`, `INT`, `LONG`, `DOUBLE`, `FLOAT`, `BYTE`, `SHORT`, `INT_LIST`, `ENUM`, `ENUM_LIST`) has `secret:true`; an unknown or empty type counts as a text, so that a new type of JDownloader cannot make a secret visible. `value` and `defaultValue` show `"••••••"` (six bullets, U+2022) for a text and `["••••••"]` for a list. An empty or null value stays as it is, so the browser can tell "not set" from "set". Numbers and switches are never masked, whatever the key.
 - `POST /config/reveal` with `{interface,storage,key}` returns `{value}` with the real value. Only for keys that match the pattern, otherwise 400. Every reveal is logged with interface and key, never the value.
 - `PUT /config` with `{interface,storage,key,value}`: 204. `storage` is empty for the general config. A value that is the mask, or a list that holds it, is a 400 and is not sent: the browser must send a new value or leave the setting alone. JDownloader refusing the value (wrong type, unknown key) is a 400 with a hint.
 - `POST /config/reset` with `{interface,storage,key}`: 204.
