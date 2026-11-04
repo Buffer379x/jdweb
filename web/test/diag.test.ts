@@ -27,3 +27,19 @@ test("the address in front of a detail", () => {
   assert.equal(addressOf("127.0.0.1"), "127.0.0.1");
   assert.equal(addressOf(""), "");
 });
+
+test("saving an address waits until JDownloader has answered there", async () => {
+  const { settleConnection } = await import("../src/lib/diag.ts");
+  const answers = ["syncing", "syncing", "misconfigured"].map((connection) => ({ url: "u", connection, detail: connection === "misconfigured" ? "another service" : "" }));
+  let asked = 0;
+  const r = await settleConnection({ url: "u", connection: "syncing", detail: "" }, async () => answers[asked++]!, async () => {});
+  assert.equal(r.connection, "misconfigured");
+  assert.equal(r.detail, "another service");
+  assert.equal(asked, 3);
+  // Already settled: no question. Never settles: gives up with the last answer.
+  assert.equal((await settleConnection({ url: "u", connection: "connected", detail: "" }, async () => { throw new Error("asked"); }, async () => {})).connection, "connected");
+  const stuck = await settleConnection({ url: "u", connection: "syncing", detail: "" }, async () => ({ url: "u", connection: "syncing", detail: "" }), async () => {}, 3);
+  assert.equal(stuck.connection, "syncing");
+  // A failing question gives back what is known.
+  assert.equal((await settleConnection({ url: "u", connection: "syncing", detail: "" }, async () => { throw new Error("x"); }, async () => {})).connection, "syncing");
+});

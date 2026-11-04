@@ -309,6 +309,7 @@ export const enMore: Record<keyof typeof deMore, string> = {
   "conn.source.env": "From the environment variable JDWEB_JD_URL. An address saved here wins over it.",
   "conn.source.default": "Default address. An address saved here wins afterwards.",
   "conn.save": "Save and connect",
+  "conn.checking": "Checking the address …",
   "conn.worked": "Connected.",
   "conn.failed": "Saved, but JDownloader does not answer there.",
   "conn.offlineNow": "JDownloader does not answer right now.",

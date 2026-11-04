@@ -183,7 +183,7 @@ export function AddLinksDialog({ onClose }: { onClose: () => void }) {
         <div class="field">
           <span class="field-label">{t("add.container")}</span>
           <div class="file-row">
-            <input ref={fileInput} type="file" accept=".dlc,.ccf,.rsdf,.metalink,.meta4,.nzb,.txt,text/plain" class="visually-hidden" tabIndex={-1} onChange={(e) => take(e.currentTarget.files?.[0])} />
+            <input ref={fileInput} type="file" accept=".dlc,.ccf,.rsdf,.metalink,.meta4,.nzb,.txt,text/plain" class="visually-hidden" tabIndex={-1} aria-label={t("add.container")} onChange={(e) => take(e.currentTarget.files?.[0])} />
             <button type="button" class="btn" onClick={() => fileInput.current?.click()}>{t("add.chooseFile")}</button>
             {file ? (
               <span class="file-name" dir="auto" title={file.name}>

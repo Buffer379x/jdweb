@@ -1,9 +1,9 @@
 import { useState } from "preact/hooks";
-import { post, put } from "../../api/client.ts";
+import { get, post, put } from "../../api/client.ts";
 import { Lamp } from "../../components/Lamp.tsx";
 import { LoadState } from "../../components/LoadState.tsx";
 import { useGet } from "../../hooks/useLoad.ts";
-import { addressOf, problems, worst, type Check, type Report } from "../../lib/diag.ts";
+import { addressOf, problems, settleConnection, worst, type Check, type Report } from "../../lib/diag.ts";
 import { has, t, type Key } from "../../i18n/index.ts";
 import { live, pushToast, pushToastForError, status } from "../../store/app.ts";
 import { errorDetail, errorText } from "../../store/errors.ts";
@@ -104,6 +104,7 @@ function ConnectionEditor({ onChanged }: { onChanged: () => void }) {
 function ConnectionForm({ c, onChanged }: { c: Conn; onChanged: () => void }) {
   const [url, setUrl] = useState(c.url);
   const [busy, setBusy] = useState(false);
+  const [checking, setChecking] = useState(false);
   const [error, setError] = useState("");
   const [result, setResult] = useState<Conn | null>(null);
   const save = async (e: Event) => {
@@ -112,15 +113,19 @@ function ConnectionForm({ c, onChanged }: { c: Conn; onChanged: () => void }) {
     setBusy(true);
     setError("");
     try {
-      const r = await put<Conn>("/connection", { url: url.trim() });
+      const first = await put<Conn>("/connection", { url: url.trim() });
+      setUrl(first.url);
+      setChecking(true);
+      // "syncing" is not an answer yet: wait for what JDownloader says at the new address.
+      const r = { ...first, ...(await settleConnection(first, () => get<Conn>("/connection"), (ms) => new Promise((res) => setTimeout(res, ms)))) };
       setResult(r);
-      setUrl(r.url);
       await refreshStatus();
       onChanged();
     } catch (err) {
       setError([errorText(err), errorDetail(err)].filter(Boolean).join(" "));
     }
     setBusy(false);
+    setChecking(false);
   };
   const shown = result ?? c;
   const ok = shown.connection === "connected" || shown.connection === "syncing";
@@ -137,7 +142,8 @@ function ConnectionForm({ c, onChanged }: { c: Conn; onChanged: () => void }) {
       </div>
       <div id="conn-msg" role="status" aria-live="polite" class="conn-msg">
         {error ? <p class="form-error" role="alert">{error}</p> : null}
-        {!error && result ? (
+        {!error && checking ? <p class="muted">{t("conn.checking")}</p> : null}
+        {!error && !checking && result ? (
           <p class="st"><Lamp tone={ok ? "run" : "err"} /><span dir="auto">{ok ? t("conn.worked") : (result.detail || t("conn.failed"))}</span></p>
         ) : null}
       </div>

@@ -34,3 +34,31 @@ export function addressOf(detail: string): string {
   const m = /^(\S+) /.exec(detail);
   return m ? m[1]! : detail;
 }
+
+export interface ConnectionAnswer {
+  url: string;
+  connection: string;
+  detail: string;
+}
+
+/**
+ * Saving an address answers "syncing" at once: whether JDownloader answers there is only known a moment later.
+ * Showing "Connected." for that would be wrong for a bad address. Asks again until the state is settled.
+ */
+export async function settleConnection(
+  first: ConnectionAnswer,
+  ask: () => Promise<ConnectionAnswer>,
+  wait: (ms: number) => Promise<void>,
+  tries = 30,
+): Promise<ConnectionAnswer> {
+  let cur = first;
+  for (let i = 0; i < tries && cur.connection === "syncing"; i++) {
+    await wait(500);
+    try {
+      cur = await ask();
+    } catch {
+      return cur;
+    }
+  }
+  return cur;
+}

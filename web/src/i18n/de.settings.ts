@@ -315,6 +315,7 @@ export const deMore = {
   "conn.source.env": "Aus der Umgebungsvariable JDWEB_JD_URL. Eine hier gespeicherte Adresse gilt vor ihr.",
   "conn.source.default": "Standardadresse. Eine hier gespeicherte Adresse gilt danach.",
   "conn.save": "Speichern und verbinden",
+  "conn.checking": "Adresse wird geprüft …",
   "conn.worked": "Verbunden.",
   "conn.failed": "Gespeichert, aber JDownloader antwortet dort nicht.",
   "conn.offlineNow": "JDownloader antwortet gerade nicht.",

@@ -219,6 +219,12 @@ export function ConfigRow({ entry: e, api, state: rs, label, flex, showOrigin = 
   else if (dirty) { stateText = t("cfg.unsaved"); stateTone = "accent"; }
   else if (status === "saved") { stateText = t("cfg.saved"); stateTone = "run"; }
 
+  // A mistake is told to a screen reader when it appears (or its text changes), not at every key.
+  const errorText_ = stateTone === "err" ? stateText : "";
+  useEffect(() => {
+    if (errorText_) announce(`${label ?? e.key}: ${errorText_}`);
+  }, [errorText_]);
+
   return (
     <div
       class={`cfg-row${flex ? " flex" : ""}${dirty ? " dirty" : ""}`}
