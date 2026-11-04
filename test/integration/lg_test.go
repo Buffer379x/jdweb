@@ -111,7 +111,10 @@ func TestLG03_Options(t *testing.T) {
 		"deepDecrypt": false, "overwritePackagizerRules": true, "priority": "HIGHER",
 	}, nil, 200)
 	l := a.waitGrabberNames(t, "it-lg03.bin")
-	p, _ := l.pkgNamed(prefix + "lg03")
+	p, okp := l.pkgNamed(prefix + "lg03")
+	if !okp {
+		t.Fatalf("package %s is not in the linkgrabber", prefix+"lg03")
+	}
 	if p.SaveTo != dir {
 		t.Errorf("saveTo = %q", p.SaveTo)
 	}
@@ -119,7 +122,10 @@ func TestLG03_Options(t *testing.T) {
 	if err != nil || len(links) != 1 {
 		t.Fatalf("%v %d", err, len(links))
 	}
-	k, _ := l.link("it-lg03.bin")
+	k, okk := l.link("it-lg03.bin")
+	if !okk {
+		t.Fatal("link it-lg03.bin is not in the linkgrabber")
+	}
 	t.Logf("T-LG-03 priority link=%q package=%q downloadPassword link=%q package=%q", k.Priority, p.Priority, k.DownloadPassword, p.Password)
 	if k.Priority != "HIGHER" && p.Priority != "HIGHER" {
 		t.Errorf("priority HIGHER did not arrive")
@@ -158,10 +164,12 @@ func TestLG04_Container(t *testing.T) {
 		time.Sleep(500 * time.Millisecond)
 		_, ok = a.grabber(t).link("it-lg04.bin")
 	}
+	// A recorded attempt, not an assertion: whether this JDownloader reads a hand-made RSDF is not promised.
+	// What is asserted below: a broken DLC is answered, bad base64 is a 400, the connection stays.
 	if ok {
-		t.Log("T-LG-04 RSDF container: link appears")
+		t.Log("T-LG-04 RSDF container (recorded, not asserted): link appears")
 	} else {
-		t.Log("T-LG-04 RSDF container: no link appeared (no hand-made container that this JDownloader reads)")
+		t.Log("T-LG-04 RSDF container (recorded, not asserted): no link appeared (no hand-made container that this JDownloader reads)")
 	}
 	// A broken DLC must not crash anything, JDWeb answers.
 	a.must(t, "POST", "/api/v1/linkgrabber/container", map[string]any{"name": "broken.dlc", "contentBase64": base64.StdEncoding.EncodeToString([]byte(strings.Repeat("x", 200)))}, nil, 200)
@@ -174,11 +182,13 @@ func TestLG04_Container(t *testing.T) {
 	}
 }
 
-// T-LG-05: abort the link search.
+// T-LG-05: abort the link search. Many links, so that the search is still running when the abort arrives; the
+// test asserts that the abort left the list incomplete and that it stays as it is afterwards.
 func TestLG05_Abort(t *testing.T) {
 	cleanJD(t)
 	a := shared(t)
-	urls, _ := numberedURLs("lg05", 300)
+	const total = 3000
+	urls, _ := numberedURLs("lg05", total)
 	a.must(t, "POST", "/api/v1/linkgrabber/add", map[string]any{"links": urls, "packageName": prefix + "lg05", "autostart": false}, nil, 200)
 	eventually(t, "crawling shows", 20*time.Second, func() bool { return a.status(t).Linkgrabber.Crawling })
 	a.action(t, "linkgrabber", "abort", map[string]any{})
@@ -186,8 +196,11 @@ func TestLG05_Abort(t *testing.T) {
 	n1 := len(a.grabber(t).Links)
 	time.Sleep(3 * time.Second)
 	n2 := len(a.grabber(t).Links)
-	t.Logf("T-LG-05 abort: %d of 300 links before, %d 3 s later", n1, n2)
-	if n2 > n1 {
+	t.Logf("T-LG-05 abort: %d of %d links before, %d 3 s later", n1, total, n2)
+	if n1 >= total {
+		t.Errorf("the search had already finished (%d of %d links) when the abort came: the test proves nothing, use more links", n1, total)
+	}
+	if n2 != n1 {
 		t.Errorf("links keep coming after the abort: %d -> %d", n1, n2)
 	}
 }

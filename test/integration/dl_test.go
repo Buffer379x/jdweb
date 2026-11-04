@@ -388,8 +388,25 @@ func (a *app) finish(t testing.TB, d dlList, names ...string) {
 			t.Log("last state: " + last)
 		}
 	}()
-	eventually(t, "the downloads end", 60*time.Second, func() bool {
+	// Now and then JDownloader leaves a forced link in "running / Starting..." for good (seen in 3 of 4 full runs,
+	// not a JDWeb matter: asking JDownloader again moves it). So the force is repeated at 20 s and 40 s for the
+	// links that have not ended, and the retry is logged: a test that needed it says so in the results.
+	start, retries := time.Now(), 0
+	eventually(t, "the downloads end", 70*time.Second, func() bool {
 		cur := a.downloads(t)
+		if retries < 2 && time.Since(start) > time.Duration(retries+1)*20*time.Second {
+			var stuck []string
+			for _, n := range names {
+				if k, ok := cur.link(n); ok && (k.State == state.LinkRunning || k.State == state.LinkWaiting) {
+					stuck = append(stuck, k.ID)
+				}
+			}
+			if len(stuck) > 0 {
+				retries++
+				t.Logf("FLAKY-FORCE: %d forced link(s) still not ended after %v, forcing again (try %d)", len(stuck), time.Since(start).Round(time.Second), retries)
+				a.action(t, "downloads", "force", sel(stuck, nil))
+			}
+		}
 		last = "controller " + a.status(t).Controller
 		for _, k := range cur.Links {
 			last += fmt.Sprintf(" [%s %s %q %d/%d]", k.Name, k.State, k.Status, k.BytesLoaded, k.BytesTotal)
@@ -621,7 +638,18 @@ func TestDL13_DeleteModeIsRecorded(t *testing.T) {
 	a.mixed(t, c, "dl13m")
 	a.action(t, "downloads", "cleanup", with(sel(nil, nil), "action", "DELETE_MODE", "mode", "REMOVE_LINKS_ONLY", "selection", "ALL"))
 	time.Sleep(3 * time.Second)
-	t.Logf("DELETE_MODE with ALL / REMOVE_LINKS_ONLY leaves: %q (of dis,fin,off,wait)", a.remaining(t, "dl13m"))
+	// What DELETE_MODE removes is not named by any contract, so the result is recorded. What is asserted: the
+	// action went through (204 above), nothing appeared that was not there, and JDWeb still shows a consistent list.
+	left := a.remaining(t, "dl13m")
+	t.Logf("DELETE_MODE with ALL / REMOVE_LINKS_ONLY leaves: %q (of dis,fin,off,wait)", left)
+	for _, kind := range strings.Split(left, ",") {
+		if kind != "" && !strings.Contains(",dis,fin,off,wait,", ","+kind+",") {
+			t.Errorf("unknown entry %q after DELETE_MODE", kind)
+		}
+	}
+	if got := a.status(t).Connection; got != "connected" {
+		t.Errorf("connection = %s", got)
+	}
 }
 
 // T-DL-14: reset and resume, skipped links and "unskip".

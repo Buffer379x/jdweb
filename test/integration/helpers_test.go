@@ -4,6 +4,7 @@ package integration
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -325,4 +326,21 @@ func fixtureIP() string {
 		return ""
 	}
 	return out
+}
+
+// restoreConfig reads a setting now and puts it back when the test ends. A failed read stops the test: a nil
+// value would be sent as null and overwrite the setting.
+func restoreConfig(t *testing.T, c *jd.Client, iface, stor, key string) {
+	t.Helper()
+	old, err := c.ConfigGet(bg(), iface, stor, key)
+	if err != nil || old == nil {
+		t.Fatalf("cannot read %s/%s to restore it later: %v", iface, key, err)
+	}
+	t.Cleanup(func() {
+		var v any
+		_ = json.Unmarshal(old, &v)
+		if err := c.ConfigSet(bg(), iface, stor, key, v); err != nil {
+			t.Errorf("cannot restore %s: %v", key, err)
+		}
+	})
 }

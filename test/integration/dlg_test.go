@@ -32,12 +32,13 @@ func TestDLG01_PremiumConfirmation(t *testing.T) {
 		body   []byte
 	}
 	done := make(chan res, 1)
+	t0 := time.Now()
 	go func() {
 		st, b := a.call("POST", "/api/v1/toggles/premium", map[string]any{"enabled": false})
 		done <- res{st, b}
 	}()
 	ev := s.wait(t, m, 15*time.Second, "dialog", `"count":1`)
-	t.Logf("T-DLG-01 dialog event after %v: %s", ev.At.Sub(time.Now()).Abs().Round(10*time.Millisecond), ev.Data)
+	t.Logf("T-DLG-01 dialog event %v after the request: %s", ev.At.Sub(t0).Round(10*time.Millisecond), ev.Data)
 	var list []dialogDTO
 	a.must(t, "GET", "/api/v1/dialogs", nil, &list, 200)
 	if len(list) != 1 {

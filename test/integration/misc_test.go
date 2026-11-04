@@ -35,11 +35,6 @@ func TestWire_CheckOnlineAndSplit(t *testing.T) {
 	for _, k := range a.grabber(t).Links {
 		t.Logf("wire: grabber link %s availability=%s enabled=%v", k.Name, k.Availability, k.Enabled)
 	}
-	if len(a.downloads(t).Links) == 0 {
-		t.Log("wire: JDownloader moved nothing from a package with an offline link; trying the online link alone")
-		on, _ := a.grabber(t).link("it-wire1-a.bin")
-		a.action(t, "linkgrabber", "to-downloads", map[string]any{"start": false, "linkIds": []string{on.ID}})
-	}
 	eventually(t, "links in downloads", 30*time.Second, func() bool { return len(a.downloads(t).Links) >= 1 })
 	t.Logf("wire: downloads after to-downloads: %d links, grabber still %d", len(a.downloads(t).Links), len(a.grabber(t).Links))
 	d := a.downloads(t)

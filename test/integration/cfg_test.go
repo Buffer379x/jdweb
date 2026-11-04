@@ -62,8 +62,7 @@ func TestCFG01_General(t *testing.T) {
 	cleanJD(t)
 	a := shared(t)
 	c := direct()
-	old, _ := c.ConfigGet(bg(), generalSettings, "", "MaxSimultaneDownloads")
-	t.Cleanup(func() { _ = c.ConfigSet(bg(), generalSettings, "", "MaxSimultaneDownloads", json.RawMessage(old)) })
+	restoreConfig(t, c, generalSettings, "", "MaxSimultaneDownloads")
 	a.must(t, "PUT", "/api/v1/config", map[string]any{"interface": generalSettings, "key": "MaxSimultaneDownloads", "value": 7}, nil, 204)
 	got, _ := c.ConfigGet(bg(), generalSettings, "", "MaxSimultaneDownloads")
 	if string(got) != "7" {
@@ -80,10 +79,10 @@ func TestCFG01_General(t *testing.T) {
 	// A value of the wrong type is refused, by JDWeb or JDownloader, with a clear status.
 	st, b := a.call("PUT", "/api/v1/config", map[string]any{"interface": generalSettings, "key": "MaxSimultaneDownloads", "value": "many"})
 	t.Logf("T-CFG-01 text for a number: %d %s", st, clip(b))
-	if st < 400 || st >= 500 && st != 400 && st != 502 {
+	if st != 400 && st != 502 { // JDWeb or JDownloader refuses: 400, or 502 for JDownloader's own refusal
 		t.Errorf("status %d", st)
 	}
-	if st, b := a.call("PUT", "/api/v1/config", map[string]any{"interface": generalSettings, "key": "NoSuchKeyAtAll", "value": 1}); st < 400 || st >= 500 && st != 502 {
+	if st, b := a.call("PUT", "/api/v1/config", map[string]any{"interface": generalSettings, "key": "NoSuchKeyAtAll", "value": 1}); st != 400 && st != 404 && st != 502 {
 		t.Errorf("unknown key = %d %s", st, clip(b))
 	}
 }
@@ -184,6 +183,20 @@ func TestCFG03_Types(t *testing.T) {
 	t.Logf("T-CFG-03 abstract types in the general config: %v", count)
 }
 
+// norm is compact, with an absent value read as null.
+func norm(b json.RawMessage) string {
+	if len(b) == 0 {
+		return "null"
+	}
+	return compact(b)
+}
+
+// secretValueless reports whether the masked entry holds no value (the mask of an empty secret is empty or null).
+func secretValueless(e *cfgEntry) bool {
+	v := norm(e.Value)
+	return v == "null" || v == `""` || v == "[]"
+}
+
 func compact(b json.RawMessage) string {
 	var out bytes.Buffer
 	if json.Compact(&out, b) != nil {
@@ -235,8 +248,7 @@ func TestCFG05_Secrets(t *testing.T) {
 	cleanJD(t)
 	a := shared(t)
 	c := direct()
-	old, _ := c.ConfigGet(bg(), extractionCfg, extractionStore, "PasswordList")
-	t.Cleanup(func() { _ = c.ConfigSet(bg(), extractionCfg, extractionStore, "PasswordList", json.RawMessage(old)) })
+	restoreConfig(t, c, extractionCfg, extractionStore, "PasswordList")
 	const pw = "it-cfg05-list-secret-48213"
 	if err := c.ConfigSet(bg(), extractionCfg, extractionStore, "PasswordList", []string{pw, "second-" + pw}); err != nil {
 		t.Fatal(err)
@@ -307,7 +319,9 @@ func TestPlugins(t *testing.T) {
 	var secret, plain *cfgEntry
 	for i := range all.Entries {
 		e := &all.Entries[i]
-		if secret == nil && e.Secret {
+		if e.Secret && (secret == nil || secretValueless(secret)) && !secretValueless(e) {
+			secret = e // prefer a secret that holds a value, so that the reveal can be compared with something
+		} else if secret == nil && e.Secret {
 			secret = e
 		}
 		if plain == nil && e.AbstractType == "BOOLEAN" && !e.Secret && e.Storage != "" {
@@ -343,6 +357,13 @@ func TestPlugins(t *testing.T) {
 			t.Errorf("reveal = %d", st)
 		}
 		_ = json.Unmarshal(b, &rev)
+		if want, err := direct().PluginValue(bg(), secret.Interface, secret.Storage, secret.Key); err != nil {
+			t.Errorf("cannot read the secret from JDownloader: %v", err)
+		} else if norm(rev.Value) != norm(want) {
+			t.Errorf("revealed value %s differs from JDownloader's %s", rev.Value, want)
+		} else if norm(want) == "null" {
+			t.Log("the plugin secrets of this JDownloader are all empty: the reveal is compared with an empty value only")
+		}
 	}
 	if st, _ := a.call("POST", "/api/v1/plugins/reveal", map[string]any{"interface": plain.Interface, "storage": plain.Storage, "key": plain.Key}); st != 400 {
 		t.Errorf("reveal of a plain plugin setting = %d", st)

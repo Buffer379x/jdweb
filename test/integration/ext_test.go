@@ -73,12 +73,14 @@ func TestEXT01_Zip(t *testing.T) {
 		t.Fatalf("archives = %+v", arcs)
 	}
 	t.Logf("T-EXT-01 archive: type=%s autoExtract=%v extractPath=%s states=%v", arcs[0].Type, arcs[0].Settings.AutoExtract, arcs[0].Settings.ExtractPath, arcs[0].States)
-	// Extraction was started by the auto extract setting or has to be started now.
-	eventually(t, "the extraction status", 20*time.Second, func() bool {
-		return strings.Contains(a.extStatus(t, "archiv.zip"), "SUCCESS") || a.extStatus(t, "archiv.zip") != ""
-	})
-	t.Logf("T-EXT-01 status after the download: %q", a.extStatus(t, "archiv.zip"))
-	if !strings.Contains(a.extStatus(t, "archiv.zip"), "SUCCESS") {
+	// Auto extract may start the extraction by itself; if no success shows within 20 s, start it now.
+	// Either way the test ends only on SUCCESS, so it cannot pass with an archive that was never extracted.
+	autoDone := false
+	for deadline := time.Now().Add(20 * time.Second); time.Now().Before(deadline) && !autoDone; time.Sleep(300 * time.Millisecond) {
+		autoDone = strings.Contains(a.extStatus(t, "archiv.zip"), "SUCCESS")
+	}
+	t.Logf("T-EXT-01 status after the download: %q (extracted by itself: %v)", a.extStatus(t, "archiv.zip"), autoDone)
+	if !autoDone {
 		var res struct {
 			Started map[string]bool `json:"started"`
 		}
