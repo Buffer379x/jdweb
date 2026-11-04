@@ -50,7 +50,7 @@ test("an action on an entry that is gone: clear message or quiet reload, no cras
   expect(watch.errors.filter((e) => !/Failed to load resource/.test(e))).toEqual([]);
   // A clear text when JDownloader said no, never a raw error.
   const toasts = await page.locator(".toasts, [role=status], [role=alert]").allTextContents();
-  console.log("Focus 2, texts after the action on the removed package:", JSON.stringify(toasts.filter(Boolean)));
+  console.log("Removed package, texts after the action on the removed package:", JSON.stringify(toasts.filter(Boolean)));
   expect(toasts.join(" ")).not.toMatch(/undefined|\[object|jd_error|TypeError/);
 });
 
@@ -88,7 +88,7 @@ test("diagnostics: wrong address variants are told apart", async ({ page, api })
     // A name that does not exist.
     const noname = await tryUrl("noname", "http://no-such-host.invalid:3128");
     expect(noname).not.toBe("Connected.");
-    console.log("Focus 3, texts:", JSON.stringify(texts));
+    console.log("Wrong address, texts:", JSON.stringify(texts));
     expect(new Set([texts.other, texts.nothing, texts.noname]).size, "the three failures read differently").toBe(3);
     // The banner and the diagnosis name the problem and the way out.
     await page.getByRole("button", { name: "Check again" }).click();
@@ -122,7 +122,7 @@ test("hostile names: shown as the text JDownloader holds, long and right-to-left
     fx("/%F0%9F%98%80%F0%9F%A7%A8-emoji.bin"),
     fx(`/${"z".repeat(500)}.bin`),
   ], { raw: true }));
-  console.log("Focus 4, what JDownloader made of the names:", JSON.stringify(held.map((h) => h.slice(0, 60))));
+  console.log("Hostile names, what JDownloader made of the names:", JSON.stringify(held.map((h) => h.slice(0, 60))));
   await open(page, "/downloads");
   await expect(page.getByRole("row")).toHaveCount(held.length + 1, { timeout: 15_000 });
   const scripts = await page.evaluate(() => document.querySelectorAll("script").length);
