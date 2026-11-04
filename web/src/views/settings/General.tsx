@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "preact/hooks";
 import { post, put } from "../../api/client.ts";
+import { applyAutoStart, autoStartFrom, LINKGRABBER } from "../../lib/autostart.ts";
 import { LoadState } from "../../components/LoadState.tsx";
 import { Switch } from "../../components/Switch.tsx";
 import { useGet } from "../../hooks/useLoad.ts";
@@ -9,14 +10,13 @@ import { describeRate, type SpeedUnit } from "../../lib/units.ts";
 import { edit, followStatus, formBytes, initialForm, isDirty, switchRequest } from "../../lib/speedlimit.ts";
 import type { ConfigEntry } from "../../lib/editors.ts";
 import { t, type Key } from "../../i18n/index.ts";
+import { errorText } from "../../store/errors.ts";
 import { live, pushToast, pushToastForError, status } from "../../store/app.ts";
 import { reconnectNow, setSpeedLimit, setToggle, type ToggleName } from "../../store/jd.ts";
 import { ConfigRow, RowStates } from "./ConfigRow.tsx";
 import { PageHead, Section } from "./common.tsx";
 
 const GENERAL = "org.jdownloader.settings.GeneralSettings";
-const LINKGRABBER = "org.jdownloader.gui.views.linkgrabber.addlinksdialog.LinkgrabberSettings";
-const AUTO_START = "LinkgrabberAutoStartEnabled";
 const FIELDS: { key: string; label: Key }[] = [
   { key: "DefaultDownloadFolder", label: "gen.folder" },
   { key: "MaxSimultaneDownloads", label: "gen.maxDownloads" },
@@ -24,7 +24,7 @@ const FIELDS: { key: string; label: Key }[] = [
 ];
 
 export function GeneralPage() {
-  const load = useGet<ConfigEntry[]>(`/config?interface=${GENERAL}`, ((r: { entries: ConfigEntry[] }) => r.entries ?? []) as never);
+  const load = useGet<ConfigEntry[]>(`/config?interface=${GENERAL}`, (r: { entries: ConfigEntry[] }) => r.entries ?? []);
   return (
     <>
       <PageHead title={t("set.general")} intro={t("gen.intro")} />
@@ -107,23 +107,21 @@ function SpeedLimit() {
 
 /** JDownloader's own switch: links that are moved to the download list start by themselves. JDWeb never changes it alone. */
 function AutoStart() {
-  const load = useGet<boolean | null>(
-    `/config?interface=${LINKGRABBER}`,
-    ((r: { entries: ConfigEntry[] }) => {
-      const e = (r.entries ?? []).find((x) => x.key === AUTO_START && x.storage === "");
-      return e ? e.value === true : null;
-    }) as never,
-  );
+  const load = useGet<boolean | null>(`/config?interface=${LINKGRABBER}`, autoStartFrom);
   const [busy, setBusy] = useState(false);
+  if (load.error && load.data === undefined) {
+    // Not hidden: without the value the switch cannot be shown, and saying so beats a missing row.
+    return (
+      <div class="note" role="alert">
+        <span dir="auto">{t("gen.autoStart")}: {errorText(load.error)}</span>
+        <button type="button" class="btn small" onClick={load.reload}>{t("common.retry")}</button>
+      </div>
+    );
+  }
   if (load.data === undefined || load.data === null) return null;
   const change = async (v: boolean) => {
     setBusy(true);
-    try {
-      await put("/config", { interface: LINKGRABBER, storage: "", key: AUTO_START, value: v });
-      load.setData(v);
-    } catch (err) {
-      pushToastForError(err);
-    }
+    await applyAutoStart(put, load.setData, pushToastForError, v);
     setBusy(false);
   };
   return (
